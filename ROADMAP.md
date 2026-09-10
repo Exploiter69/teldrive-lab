@@ -1,108 +1,102 @@
-# TelDrive Lab — Roadmap
+# TelDrive Lab — Final Canonical Roadmap
 
 **Status:** Canonical implementation roadmap  
-**Version:** 1.0  
-**Scope:** Sidecar automation, control, indexing, reliability, and intelligence for an existing TelDrive deployment  
+**Version:** 2.0 — reconciled 2026-09-11  
+**Scope:** Sidecar automation, control, indexing, reliability, and intelligence for the existing TelDrive deployment  
 **Cost target:** ₹0 / $0
 
----
-
-## 1. Mission
-
-TelDrive Lab is a **sidecar control plane and power-user ecosystem** around the existing TelDrive deployment.
-
-It is not a replacement for TelDrive, Telegram, rclone, PostgreSQL, or the existing storage layout. The Lab adds durable jobs, deterministic automation, metadata indexing, verification, monitoring, search, controlled workflows, and optional intelligence while keeping the existing storage system authoritative.
-
-The central objective is:
-
-> Make the existing TelDrive storage reliable, observable, searchable, automatable, and safely extensible without migrating or rebuilding the existing system.
+> **Canonical-source rule:** This root `ROADMAP.md` is the only authoritative roadmap. The former `docs/ROADMAP.md` was the earlier planning transcript and is removed after reconciliation. Future roadmap changes belong here.
 
 ---
 
-## 2. Non-Negotiable Rules
+## 0. Non-negotiable architecture rules
 
-These rules apply to every phase.
+These govern every phase.
 
-1. **TelDrive remains the storage/backend authority.**
-2. **Existing Telegram-backed data is protected.**
-3. **No migration, re-upload, replacement, or storage reorganization as a prerequisite for the Lab.**
-4. **The Lab is independently removable and rebuildable.**
-5. **The Lab catalog is rebuildable and never becomes the source of truth for stored data.**
-6. **Destructive operations are never automatic by default.**
-7. **Mutating workflows follow:**
-   `PLAN → DRY-RUN → EXPLICIT AUTHORIZATION → EXECUTE → VERIFY → AUDIT`
-8. **Transfer success is not the same as archival completion; required verification must pass.**
-9. **Duplicate detection is informational unless the user explicitly authorizes a destructive action.**
-10. **AI is advisory and cannot authorize deletion, migration, configuration changes, database changes, or storage mutations.**
-11. **Telegram API usage remains conservative and rate-aware.**
-12. **No secrets, credentials, tokens, session material, or private production state are committed to Git.**
-13. **The system must remain useful without AI.**
-14. **Heavy workloads are bounded, scheduled, and resource-aware for the target ~8 GB RAM laptop.**
-15. **Every important state-changing action must be auditable.**
-16. **When safety, authorization, source, destination, or verification is uncertain, fail closed.**
+### Protected production foundation
 
----
+The Lab must not modify, migrate, replace, or reorganize without a separate explicit authorization workflow:
 
-## 3. Implementation Strategy
+- existing Telegram-backed data
+- `~/TelegramRaw`
+- `~/TelegramDrive`
+- production TelDrive
+- `~/teldrive`
+- existing PostgreSQL database
+- existing rclone services/configuration
+- existing TelDrive source repository `~/teldrive-project`
+- DNS/nameservers
+- authentication/session state
+- `teldrive-original`
+- the working Recent `created_at` fix
 
-The project is deliberately staged so that higher-level automation cannot outrun the reliability and safety foundations beneath it.
+TelDrive remains the storage/backend authority.
+
+### Lab philosophy
 
 ```text
-Foundation
-   ↓
-Reliability & Safety
-   ↓
-Metadata & Index
-   ↓
-Durable Job Engine
-   ↓
-Transfer Manager
-   ↓
-Deterministic Organization
-   ↓
-Archive Workflows
-   ↓
-Integrity & Duplicate Intelligence
-   ↓
-Lifecycle / Backup / Recovery
-   ↓
-Monitoring / Notifications / CLI
-   ↓
-Cache & Storage Intelligence
-   ↓
-Read-only Interoperability / Media
-   ↓
-Advanced Search / OCR / Transcription
-   ↓
-Optional Local AI
-   ↓
-Cross-project Integrations / Dashboard / Experiments
+Existing TelDrive / Telegram / rclone
+            ↓
+     authoritative storage
+            ↓
+       TelDrive Lab
+            ↓
+ control / automation / indexing
+ observability / verification
 ```
 
-**Dependency rule:** do not begin a later phase merely because its feature is attractive. Complete and validate the foundations required by that phase first.
+The Lab is a **sidecar control plane**, not a replacement storage system.
+
+### Safety lifecycle
+
+Every mutation-capable workflow follows:
+
+```text
+PLAN
+ ↓
+DRY-RUN
+ ↓
+EXPLICIT AUTHORIZATION
+ ↓
+EXECUTE
+ ↓
+VERIFY
+ ↓
+AUDIT
+```
+
+When source, destination, scope, authorization, safety, or verification is uncertain, fail closed.
+
+### Cost
+
+The architecture remains **₹0 / $0**. Prefer local/open-source components, existing infrastructure, SQLite, systemd, rclone, Docker, and local models/tools. No paid SaaS or paid API is a required dependency.
+
+### Resource discipline
+
+The target host has roughly 8 GB RAM and a 12th-gen i5 CPU. Continuous workloads must therefore be lightweight; heavy indexing, hashing, OCR, transcription, media analysis, and AI are bounded, scheduled, or on-demand.
 
 ---
 
 # Phase 0 — Lab Foundation
 
-**Goal:** Establish the project as a safe, documented sidecar before touching implementation.
+**Goal:** establish a clean, independently rebuildable engineering project without touching production.
 
 ### Deliverables
 
 - GitHub repository and local checkout
-- architecture baseline
+- canonical architecture
 - safety contract
 - production boundary
 - data model
 - durable job model
-- architecture decision record
+- architecture decisions
 - testing strategy
 - runtime/state directory policy
 - secret-handling policy
 
 ### Current state
 
-The Lab repository is initialized and connected to GitHub. Existing TelDrive production remains outside the Lab's ownership boundary.
+The Lab repository exists at `~/teldrive-lab` and is connected to GitHub. Architecture documentation is established. Production remains outside the Lab's ownership boundary.
 
 ### Exit criteria
 
@@ -110,125 +104,317 @@ The Lab repository is initialized and connected to GitHub. Existing TelDrive pro
 - protected production boundary is explicit
 - no implementation assumes ownership of existing storage
 - safety invariants are testable
+- runtime state is outside the repository
 
 ---
 
-# Phase 1 — Reliability & Safety
+# Phase 1 — Reliability & Safety Foundation
 
-**Goal:** Build confidence before adding automation.
+**Goal:** prove that the Lab can observe, protect, back up, and recover the existing environment before introducing durable automation.
 
-### Work
+## 1.1 Recent regression protection
 
-1. Protect the existing Recent-files regression with a repeatable compatibility/regression check.
-2. Establish safe configuration backup procedures.
-3. Back up the production database using supported mechanisms.
-4. Perform an **isolated actual restore test**; a backup that has never been restored is not considered proven.
-5. Monitor rclone RAW and CRYPT mount health.
-6. Monitor TelDrive, PostgreSQL, Docker, filesystem capacity, memory, CPU, and network health.
-7. Introduce a local Lab audit/event log.
-8. Detect stale FUSE mounts, failed services, incomplete operations, and resource pressure without automatically performing risky remediation.
+Preserve the existing invariant:
 
-### Exit criteria
+```text
+Recent → createdAt
+```
 
-- backup and restore procedure proven
+not `updatedAt`.
+
+Create a repeatable compatibility/regression check so future Lab or upstream work cannot silently regress the behavior.
+
+## 1.2 Safe configuration backup
+
+Create versioned, secret-free templates/references for:
+
+- TelDrive configuration
+- rclone service definitions/configuration references
+- systemd units
+- Docker configuration
+- Lab configuration
+
+Never commit secrets, session material, tokens, or private production state.
+
+## 1.3 Database backup and isolated restore
+
+Build and test:
+
+```text
+backup
+ ↓
+verify backup exists
+ ↓
+restore into isolated test location
+ ↓
+validate
+```
+
+A backup that has never been restored is not considered proven.
+
+## 1.4 Mount and service health
+
+Observe:
+
+- `~/TelegramRaw`
+- `~/TelegramDrive`
+- FUSE health
+- read/write accessibility where safe
+- stale mount conditions
+- rclone systemd state
+- TelDrive
+- PostgreSQL
+- Docker
+
+Health monitoring must not silently repair or mutate production.
+
+## 1.5 Resource monitoring
+
+Track:
+
+- RAM
+- CPU
+- disk capacity
+- disk I/O
+- network reachability
+- rclone processes
+- cache usage
+- Docker
+- TelDrive
+- PostgreSQL
+
+## 1.6 Local audit/event log
+
+Establish the Lab audit foundation for operations and state transitions, including:
+
+```text
+timestamp
+operation
+job_id
+source
+destination
+decision
+result
+checksum/error when applicable
+```
+
+### Phase 1 exit gate
+
+- backup and isolated restore proven
 - mount/service health observable
 - resource pressure visible
 - audit trail exists
-- no reliability feature modifies production data silently
+- Recent regression protected
+- no reliability feature modifies production silently
 
-**Dependency:** Phase 1 must be proven before Phase 3 Job Engine work begins.
+**Hard dependency:** Phase 1 must pass before Phase 3 Job Engine implementation.
 
 ---
 
-# Phase 2 — Metadata & Index
+# Phase 2 — Metadata & Index Foundation
 
-**Goal:** Build a rebuildable catalog of what exists without making the catalog authoritative.
+**Goal:** build a rebuildable catalog of what exists without making the catalog authoritative.
 
-### Work
+## 2.1 Canonical metadata
 
-- canonical file metadata model
-- local SQLite catalog
-- incremental filesystem discovery
-- TelDrive/rclone metadata ingestion where safely available
-- SHA-256 checksum records
-- hash index
-- filename/path search
-- MIME/extension/size/time indexes
-- source/destination/encryption/verification state
-- Telegram identifiers where available
-- tags and user metadata
-- saved searches / smart views
-- catalog consistency checks
-- full-text search preparation
+Support fields including:
 
-### Important design rule
+```text
+id
+path
+name
+parent_path
+size
+MIME
+extension
+created_at
+modified_at
+sha256
+hash_state
+source_type
+source_identifier
+destination_type
+destination_identifier
+Telegram identifiers
+encryption_class
+verification_state
+tags
+job_id
+first_seen_at
+last_seen_at
+```
 
-The catalog lives under Lab runtime state, for example:
+Unknown values remain unknown/null; never fabricate metadata.
+
+## 2.2 SQLite catalog
+
+Use:
 
 ```text
 ~/.local/share/teldrive-lab/catalog.db
 ```
 
-It is **rebuildable derived state**. Loss of the catalog must not mean loss of storage data.
+The catalog is derived, rebuildable state. Losing it must not mean losing storage data.
 
-### Exit criteria
+## 2.3 Discovery and ingestion
+
+Implement bounded, incremental discovery from authoritative interfaces such as local filesystems and safely available TelDrive/rclone metadata.
+
+## 2.4 Search foundation
+
+Start with filename/path search and prepare SQLite FTS for later content search.
+
+Example concepts:
+
+```text
+td search "VAJRA"
+td search "quantum transformer"
+td search "*.pdf"
+```
+
+## 2.5 Smart views
+
+Examples:
+
+- large files
+- recent files
+- unverified
+- archives
+- datasets
+- encrypted
+- movies
+- backups
+- duplicates
+- never accessed
+
+These are query views, not physical storage reorganization.
+
+## 2.6 Hash index
+
+Use SHA-256 initially. Store hash, size, provenance, source/Telegram identity where available, and verification state. Benchmark BLAKE3 later before changing the canonical choice.
+
+### Phase 2 exit gate
 
 - catalog can be rebuilt from authoritative sources
-- search works on indexed metadata
 - indexing is incremental and bounded
-- hashes are deterministic
-- catalog corruption does not corrupt production storage
+- deterministic hashes work
+- metadata search works
+- catalog corruption cannot corrupt production storage
+
+**Hard dependency:** Phase 2 must pass before Phase 3 Job Engine implementation.
 
 ---
 
 # Phase 3 — Durable Job Engine
 
-**Goal:** Replace fragile one-off automation with a durable execution model.
+**Goal:** replace fragile one-off automation with durable, restart-safe execution.
 
 ### Core job types
 
-- UPLOAD
-- DOWNLOAD
-- ARCHIVE
-- VERIFY
-- BACKUP
-- SNAPSHOT
-- ORGANIZE
-- CLEANUP
-- INDEX
-- RESTORE
+```text
+UPLOAD
+DOWNLOAD
+ARCHIVE
+VERIFY
+BACKUP
+SNAPSHOT
+ORGANIZE
+CLEANUP
+INDEX
+RESTORE
+```
 
-### Required capabilities
+### Required fields
 
-- durable persistence
-- explicit state machine
-- priorities
-- progress tracking
-- cancellation
-- retry scheduling
-- transient/rate-limit/permanent/integrity failure classification
-- bounded exponential backoff with jitter
-- worker leases
-- abandoned-job recovery
-- idempotency
-- parent/child jobs
-- crash recovery
-- offline-first queue behavior
-- audited state transitions
+```text
+job_id
+type
+priority
+state
+created_at
+started_at
+updated_at
+completed_at
+attempts
+max_attempts
+retry_at
+source
+destination
+path
+size
+checksum
+progress
+error_code
+error_message
+worker_id
+lease_until
+parent_job_id
+```
+
+### States
+
+```text
+QUEUED
+RUNNING
+PAUSED
+VERIFYING
+COMPLETED
+FAILED
+CANCELLED
+```
+
+Normal successful flow:
+
+```text
+QUEUED → RUNNING → VERIFYING → COMPLETED
+```
+
+## 3.1 Crash recovery
+
+Persist all state. On restart, recover expired leases, incomplete verification, abandoned transfers, and stale jobs without falsely marking work complete.
+
+## 3.2 Retry engine
+
+Classify failures as transient, rate-limited, permanent, or integrity-related. Use bounded exponential backoff with jitter. Never blindly retry permanent or unsafe failures.
+
+## 3.3 Worker leases
+
+Workers must lease jobs so abandoned work can be recovered without uncontrolled duplicate execution.
+
+## 3.4 Idempotency
+
+Repeated execution must reconcile with current state and avoid accidental duplicate mutation.
+
+## 3.5 Parent/child jobs
+
+Composite workflows may create children such as:
+
+```text
+ARCHIVE
+ ├─ HASH
+ ├─ DUPLICATE_CHECK
+ ├─ UPLOAD
+ ├─ VERIFY
+ └─ INDEX
+```
+
+## 3.6 Offline-first behavior
+
+When network/TelDrive is unavailable, durable local work remains queued and resumes only when safe.
 
 ### Completion invariant
 
-A job is not `COMPLETED` merely because a command returned success. Required postconditions and verification must pass.
+A job is `COMPLETED` only after required postconditions and verification pass.
 
-### Exit criteria
+### Phase 3 exit gate
 
-A process restart, network interruption, sleep cycle, or worker failure must not create false completion, lose job state, or cause uncontrolled duplicate execution.
+Process restart, network interruption, sleep, worker failure, and cancellation must not lose job state, create false completion, or trigger uncontrolled duplicate execution.
 
 ---
 
 # Phase 4 — Transfer Manager
 
-**Goal:** Provide one controlled transfer layer for local files and the existing TelDrive/rclone interfaces.
+**Goal:** provide one controlled transfer layer over local files and the existing TelDrive/rclone interfaces.
 
 ### Work
 
@@ -238,37 +424,40 @@ A process restart, network interruption, sleep cycle, or worker failure must not
 - progress reporting
 - rate-limit awareness
 - retry classification
-- backoff
+- exponential backoff
 - resumable/recoverable transfers where supported
 - checksum-aware verification
 - network interruption recovery
 - sleep/restart recovery
 - TelDrive/rclone failure handling
-- transfer benchmarking before concurrency tuning
+- transfer benchmarking before tuning concurrency
 
-### Initial interface examples
+Example interfaces:
 
 ```text
 td upload <file>
 td download <path>
 td verify <path>
-td jobs
 ```
 
-### Rule
+### Concurrency rule
+
+Do not increase concurrency based on guesswork. Benchmark first, then use bounded resource-aware limits.
+
+### Storage rule
 
 Do not introduce a second storage backend merely to make transfers easier.
 
 ---
 
-# Phase 5 — Deterministic Organization
+# Phase 5 — Deterministic Organization Engine
 
-**Goal:** Make organization predictable and policy-driven.
+**Goal:** make organization predictable, policy-driven, and reviewable.
 
 ### Classification inputs
 
-- extension
 - MIME type
+- extension
 - filename
 - path
 - size
@@ -276,31 +465,38 @@ Do not introduce a second storage backend merely to make transfers easier.
 - existing metadata
 - explicit user rules
 
-### Work
+### Policy examples
 
-- rule engine
-- RAW vs CRYPT routing policy
-- destination policies
-- dry-run planner
-- explicit apply operation
-- conflict handling
-- audit records
+```text
+projects/** → encrypted
+backups/** → encrypted
+movies/** → raw
+datasets/** → raw
+```
 
-### Example
+### Workflow
 
 ```text
 td organize --dry-run
+        ↓
+review plan
+        ↓
+explicit authorization
+        ↓
+td organize --apply
+        ↓
+verify
+        ↓
+audit
 ```
 
-Only after reviewing the plan may an explicitly authorized apply operation mutate files.
-
-**AI is not the organization authority.** AI may propose a classification later, but deterministic policy decides whether and how it is applied.
+AI is not the organization authority. Deterministic policy decides whether and how a proposed classification is applied.
 
 ---
 
 # Phase 6 — Archive Manager
 
-**Goal:** Turn archival into a safe, composable workflow.
+**Goal:** turn archival into a safe, composable one-way workflow.
 
 ### Canonical flow
 
@@ -328,23 +524,35 @@ INDEX
 AUDIT
 ```
 
-### Composite command
+Example:
 
 ```text
 td archive <file>
 ```
 
-The workflow may eventually support watched directories such as an archive inbox, but local deletion is **not** part of the default archive operation.
+### Archive watcher
 
-### Initial direction
+A future staging directory such as `~/Archive/` may feed the same durable workflow:
 
-Start with **one-way local → TelDrive archival**. Two-way synchronization is explicitly deferred.
+```text
+file appears
+ ↓
+watcher
+ ↓
+queue
+ ↓
+archive workflow
+```
+
+### Critical boundary
+
+Initial archival is **local → TelDrive**. Local deletion/cleanup is not part of the default archive operation. Two-way synchronization is deferred.
 
 ---
 
 # Phase 7 — Integrity & Duplicate Intelligence
 
-**Goal:** Know whether stored copies are trustworthy and identify duplicate data without destructive automation.
+**Goal:** know whether copies are trustworthy and identify duplicates without destructive automation.
 
 ### Work
 
@@ -356,21 +564,21 @@ Start with **one-way local → TelDrive archival**. Two-way synchronization is e
 - stale checksum detection
 - integrity reports
 - missing verified-copy reports
-- optional benchmark of BLAKE3 before considering it
+- optional BLAKE3 benchmark
 
-### Safety rule
+### Safety invariant
 
 ```text
 DUPLICATE FOUND ≠ DELETE
 ```
 
-The system may report reclaimable space, but deletion requires a separate explicit authorization workflow.
+The system may report potentially reclaimable space. Any destructive cleanup requires a separate explicit authorization workflow.
 
 ---
 
 # Phase 8 — Safety & Lifecycle Management
 
-**Goal:** Make cleanup possible without making accidental destruction easy.
+**Goal:** make cleanup possible without making accidental destruction easy.
 
 ### Work
 
@@ -382,48 +590,60 @@ The system may report reclaimable space, but deletion requires a separate explic
 - cleanup planner
 - protected-path enforcement
 - cleanup verification
-- audit trail for lifecycle operations
+- lifecycle audit trail
 
-### Default behavior
+### Default
 
-Cleanup is conservative. Protected paths and uncertain states cause the operation to stop rather than guess.
+Uncertain or protected states stop the operation rather than causing the system to guess.
 
 ---
 
 # Phase 9 — Scheduled Backups & Snapshots
 
-**Goal:** Automate proven backup workflows using the durable Job Engine.
+**Goal:** automate proven backup workflows using the durable Job Engine.
 
-### Work
+### Flow
 
-- scheduled backups
-- snapshots
-- manifests
-- checksums
-- verification
-- retention
-- restore workflows
-- Git-aware project backups
-- daily/weekly/monthly policy options
+```text
+schedule
+ ↓
+snapshot/backup
+ ↓
+checksum
+ ↓
+archive
+ ↓
+verify
+ ↓
+retention
+```
 
-### Initial backup targets
+Potential targets include:
 
 - VAJRA
 - Alok Engineering Lab
 - Mithila Heritage Archives
 - important Lab configuration/documentation
 
-These are **future targets**, not dependencies of the TelDrive Lab core.
+These are future targets, not dependencies of the core Lab.
 
-### Principle
+### Retention
 
-A backup is considered useful only when its integrity and restore path are understood.
+Support configurable daily/weekly/monthly policies.
+
+### Git-aware backups
+
+Git remains authoritative for repositories. The Lab orchestrates useful backups/artifacts rather than replacing Git.
+
+### Restore principle
+
+Restore must be a first-class workflow with verification, not merely the inverse of backup.
 
 ---
 
 # Phase 10 — Monitoring & Notifications
 
-**Goal:** Provide a unified operational view.
+**Goal:** provide a unified operational health model.
 
 ### Monitor
 
@@ -433,8 +653,7 @@ A backup is considered useful only when its integrity and restore path are under
 - rclone RAW mount
 - rclone CRYPT mount
 - filesystem capacity
-- memory pressure
-- CPU pressure
+- memory/CPU pressure
 - network availability
 - job queue
 - failed jobs
@@ -442,24 +661,24 @@ A backup is considered useful only when its integrity and restore path are under
 - catalog health
 - cache behavior
 
-### Notifications
+### Notification adapters
 
-Evaluate zero-cost channels first:
+Evaluate zero-cost options first:
 
 - desktop notifications
 - Telegram notifications
 - local logs
 - webhooks where useful
 
-Notifications inform; they do not silently authorize risky actions.
+Notifications inform; they never silently authorize risky actions.
 
 ---
 
 # Phase 11 — CLI Control Plane
 
-**Goal:** Make the system usable through one consistent interface.
+**Goal:** expose the shared engines through one consistent interface.
 
-### Planned commands
+Planned command family:
 
 ```text
 td status
@@ -480,72 +699,71 @@ td monitor
 td policy
 ```
 
-All commands should call shared services rather than implementing independent business logic.
-
-Future interfaces may include an API, dashboard, PWA, or Telegram bot, but the CLI is the initial control surface.
+The CLI is the initial control surface. Future API, PWA, dashboard, or Telegram interfaces must call the same underlying services rather than duplicate business logic.
 
 ---
 
 # Phase 12 — Smart Storage & Cache Intelligence
 
-**Goal:** Optimize storage behavior using measurement rather than guesses.
+**Goal:** optimize storage behavior using measurement rather than guesses.
 
-### Work
+### Measure first
 
-- hot/cold usage telemetry
-- cache hit/miss measurement
-- disk-pressure telemetry
-- access-pattern analysis
+- hot/cold usage
+- cache hit/miss rate
+- disk pressure
+- access patterns
+- bandwidth utilization
+- cache growth
+
+### Then potentially implement
+
 - controlled cache eviction
-- selective prefetch where justified
+- selective prefetch
 - tiering recommendations
-- bandwidth/storage utilization reports
-
-### Rule
+- storage/bandwidth reports
 
 No arbitrary VFS tuning, unlimited read-ahead, or unbounded cache growth.
-
-Measure first; change second.
 
 ---
 
 # Phase 13 — Read-only Interoperability
 
-**Goal:** Expose existing storage safely to compatible consumers.
+**Goal:** expose existing storage safely to compatible consumers.
 
-### First candidates
+Initial candidates:
 
 - WebDAV read-only
 - filesystem-compatible consumers
 - controlled rclone serving
 
-Write access is deliberately deferred until read-only behavior, authentication, isolation, and failure handling are proven.
+Write access is deferred until read-only behavior, authentication, isolation, and failure handling are proven.
 
 ---
 
 # Phase 14 — Media Ecosystem
 
-**Goal:** Turn archived media into usable personal infrastructure without rewriting originals.
+**Goal:** make archived media usable without rewriting authoritative originals.
 
-### Candidates
+Candidates:
 
 - Jellyfin read-only consumption
 - Direct Play first
-- Intel QSV / VA-API if transcoding is actually required
+- Intel QSV / VA-API only if transcoding is actually required
 - Navidrome
 - Immich
 - Kavita / Calibre-Web
 - Paperless
 
-Each integration is evaluated independently. No integration gets permission to reorganize or delete the authoritative storage by default.
+Every integration is evaluated independently. No integration receives default authority to reorganize or delete storage.
 
 ---
 
 # Phase 15 — Media & Document Intelligence
 
-**Goal:** Extract useful metadata without modifying originals.
+**Goal:** extract useful metadata without modifying originals.
 
-### Batch/disposable tooling
+Potential batch tools:
 
 - FFmpeg
 - ExifTool
@@ -554,7 +772,7 @@ Each integration is evaluated independently. No integration gets permission to r
 - document parsers
 - thumbnail generation
 
-### Possible metadata
+Potential derived metadata:
 
 - duration
 - resolution
@@ -566,33 +784,35 @@ Each integration is evaluated independently. No integration gets permission to r
 - thumbnails
 - document metadata
 
-Heavy processing should be scheduled or on-demand on the resource-constrained host.
+Heavy workloads are scheduled, bounded, or on-demand.
 
 ---
 
 # Phase 16 — Advanced Search
 
-**Goal:** Progress from filename search toward content-aware retrieval.
+**Goal:** progress from filename search toward content-aware retrieval.
 
-### Search levels
+Search levels:
 
+```text
 1. filename/path
 2. metadata
 3. OCR/document text
 4. transcripts
 5. semantic search
+```
 
-Full-text indexing should be added only after the metadata foundation is stable.
+Full-text and semantic indexing remain derived state and must not become a storage authority.
 
 ---
 
 # Phase 17 — Optional Local AI
 
-**Goal:** Add intelligence without giving models authority over storage.
+**Goal:** add intelligence without giving models storage authority.
 
-### Possible uses
+Potential uses:
 
-- automatic classification suggestions
+- classification suggestions
 - tagging suggestions
 - summaries
 - natural-language search
@@ -601,7 +821,7 @@ Full-text indexing should be added only after the metadata foundation is stable.
 - document/media understanding
 - archive recommendations
 
-### Architecture rule
+Required boundary:
 
 ```text
 AI suggestion
@@ -617,17 +837,17 @@ Verification
 Audit
 ```
 
-AI never receives unrestricted mutation authority.
+AI cannot authorize deletion, migration, configuration changes, database changes, or unrestricted storage mutations.
 
-Local/open-source models are preferred. Remote/free tiers may be evaluated only when they remain compatible with the ₹0/$0 constraint and do not introduce unacceptable privacy or reliability dependencies.
+Local/open-source models are preferred. Remote/free tiers may be evaluated only when compatible with ₹0/$0, privacy, reliability, and rate-limit requirements.
 
 ---
 
 # Phase 18 — Storage Intelligence
 
-**Goal:** Turn the catalog into actionable storage knowledge.
+**Goal:** turn the catalog into actionable storage knowledge.
 
-### Reports
+Reports may include:
 
 - duplicate data
 - potentially reclaimable GB
@@ -647,7 +867,7 @@ The intelligence layer recommends; safety and policy layers decide.
 
 # Phase 19 — Time Machine / Snapshot System
 
-**Goal:** Provide controlled historical views and reliable restoration.
+**Goal:** provide controlled historical views and reliable restoration.
 
 ### Work
 
@@ -659,21 +879,21 @@ The intelligence layer recommends; safety and policy layers decide.
 - restore verification
 - project-aware snapshots
 
-Git remains the authority for Git repositories. TelDrive Lab provides storage/backup orchestration rather than replacing Git.
+Git remains authoritative for Git repositories. TelDrive Lab provides storage and backup orchestration rather than replacing Git.
 
 ---
 
 # Phase 20 — Cross-Project Integrations
 
-**Goal:** Connect the Lab to other personal engineering systems without coupling their cores.
+**Goal:** connect the Lab to other engineering systems without coupling their cores.
 
-### Planned integrations
+Planned integrations:
 
 - VAJRA
 - Alok Engineering Lab
 - Mithila Heritage Archives
 
-Example future VAJRA flow:
+Example future flow:
 
 ```text
 VAJRA Engineering Run
@@ -693,15 +913,15 @@ Verification
 Immutable Archive
 ```
 
-Integrations communicate through stable interfaces and artifacts rather than sharing internal databases.
+Integrations communicate through stable interfaces and artifacts, not shared internal databases.
 
 ---
 
 # Phase 21 — Advanced / Experimental Features
 
-These are intentionally deferred until the core system is mature.
+Deferred until the core system is mature.
 
-### Candidates
+Candidates:
 
 - multiple Telegram accounts/channels
 - selective synchronization
@@ -716,15 +936,15 @@ These are intentionally deferred until the core system is mature.
 
 ### Explicitly deferred
 
-Two-way synchronization should not be introduced until one-way workflows have proven their safety and recovery semantics.
+Two-way synchronization is not introduced until one-way workflows have proven their safety and recovery semantics.
 
 ---
 
 # Phase 22 — Optional Storage Control Center
 
-**Goal:** Provide a unified human interface once the underlying system is mature.
+**Goal:** provide a unified human interface after the underlying engines are mature.
 
-### Possible UI
+Possible UI:
 
 - storage overview
 - job queue
@@ -739,229 +959,84 @@ Two-way synchronization should not be introduced until one-way workflows have pr
 - media views
 - alerts
 
-Architecture:
+Conceptual architecture:
 
 ```text
-                 ┌─────────────────┐
-                 │ CLI / Web / PWA │
-                 │ Telegram / API  │
-                 └────────┬────────┘
-                          ↓
-                 ┌─────────────────┐
-                 │   Control Plane │
-                 └────────┬────────┘
-                          ↓
-        ┌─────────────────┼─────────────────┐
-        ↓                 ↓                 ↓
-  Policy Engine      Job Engine        Metadata Index
-        ↓                 ↓                 ↓
-        └──────────┬──────┴──────┬──────────┘
-                   ↓             ↓
-             Transfer Manager   Audit
-                   ↓
-          Existing TelDrive/rclone
-                   ↓
-             Telegram storage
+                 ┌────────────────────┐
+                 │ CLI / Web / PWA    │
+                 │ Telegram / API     │
+                 └─────────┬──────────┘
+                           ↓
+                  Shared Control API
+                           ↓
+       ┌───────────────────┼───────────────────┐
+       ↓                   ↓                   ↓
+   Policy Engine      Job Engine         Catalog/Search
+       ↓                   ↓                   ↓
+       └───────────────────┼───────────────────┘
+                           ↓
+                    Transfer Manager
+                           ↓
+              Existing TelDrive / rclone
 ```
 
-The UI is a client. It is not the architecture itself.
+The UI is never the authority. Shared services, policy, authorization, verification, and audit remain authoritative.
 
 ---
 
-# 4. Feature Mapping from the Power-user List
+# Global Implementation Gates
 
-The broader feature inventory is intentionally mapped into the staged architecture rather than implemented as disconnected scripts.
+A phase is **not complete** because its code exists.
 
-| Feature | Roadmap phase |
-|---|---|
-| Watched-directory upload/download | 4 / 6 / 21 |
-| Deterministic organization | 5 |
-| Local → Telegram archive | 6 |
-| Telegram → local sync | 21, one-way first |
-| Scheduled backups | 9 |
-| SHA-256 duplicate detection | 7 |
-| RAW vs CRYPT policy | 5 |
-| Snapshots/versioning | 9 / 19 |
-| MIME/media categorization | 2 / 5 / 15 |
-| Search/indexing | 2 / 16 |
-| Integrity verification | 1 / 7 |
-| Dynamic transfer concurrency | 4 / 21 |
-| Cache management | 12 |
-| Dashboard | 22 |
-| Notifications | 10 |
-| Cleanup/retention | 8 |
-| Quotas | 5 / 8 / 12 |
-| Multiple accounts/channels | 21 |
-| Upload queue/priorities | 3 / 4 |
-| Bandwidth scheduler | 21 |
-| Composite `archive` command | 6 / 11 |
-| Trash/safety window | 8 |
-| Immutable archive | 8 / 19 |
-| Automatic checksum DB | 2 / 7 |
-| Offline-first behavior | 3 / 4 |
-| Storage intelligence | 18 |
-| VAJRA integration | 20 |
-| Alok Engineering Lab integration | 20 |
-| Mithila Archives integration | 20 |
+Every phase must satisfy, as applicable:
 
----
+1. implementation complete
+2. unit/integration tests pass
+3. failure behavior tested
+4. safety invariants tested
+5. restart/recovery behavior tested where relevant
+6. resource behavior tested on the target host
+7. production boundary verified
+8. documentation updated
+9. no secrets committed
+10. Git state clean and changes recorded
 
-# 5. What Is Explicitly Rejected
-
-The following are outside the default architecture unless a future decision explicitly changes the policy:
-
-- replacing TelDrive
-- replacing PostgreSQL
-- replacing Telegram-backed storage
-- migrating existing files to a new storage system
-- re-uploading existing data as a prerequisite
-- destructive automatic deduplication
-- arbitrary production reorganization
-- unauthenticated public storage exposure
-- uncontrolled Telegram API traffic
-- treating AI output as authorization
-- always-on heavy AI on the laptop
-- unbounded cache/read-ahead
-- two-way sync as an early feature
-- automatic database/schema replacement
-- arbitrary Docker/container replacement of production
-- DNS/nameserver changes by the Lab
-- Telegram as the only disaster-recovery mechanism
-- introducing a second storage backend merely for convenience
-
-A rejected idea can only return through an explicit architecture decision that documents its safety and operational justification.
-
----
-
-# 6. Testing Philosophy
-
-Every phase must have a concrete proof, not merely code that exists.
-
-### Required test categories
-
-- unit tests
-- integration tests
-- failure injection where practical
-- dry-run tests
-- authorization tests
-- idempotency tests
-- crash/restart tests
-- network interruption tests
-- verification tests
-- protected-path tests
-- resource-limit tests
-- compatibility tests against the existing TelDrive deployment
-- restore tests for backup features
-
-### Mutation rule
-
-A destructive or production-affecting feature is not considered complete until its safety behavior has been tested independently from its happy path.
-
----
-
-# 7. Resource Strategy
-
-The target host is a laptop-class system with approximately 8 GB RAM.
-
-Therefore:
-
-- prefer SQLite over heavyweight infrastructure
-- prefer systemd over unnecessary always-on orchestration
-- bound workers and queues
-- avoid redundant daemons
-- perform large scans incrementally
-- schedule expensive hashing/media/OCR jobs
-- avoid loading large datasets into RAM
-- measure transfer/cache performance before tuning
-- use local AI only when workload and memory budget justify it
-- prefer batch/disposable AI workloads over permanent services
-- keep the control plane lightweight
-
-CPU availability does not justify ignoring RAM pressure.
-
----
-
-# 8. Zero-cost Strategy
-
-The architecture targets **₹0 / $0** ongoing infrastructure cost.
-
-Preferred building blocks:
-
-- existing Linux host
-- Python / Go / Bash where appropriate
-- SQLite
-- systemd
-- rclone
-- existing TelDrive
-- Docker where justified
-- open-source utilities
-- local/open-source AI
-- free remote services only when genuinely free and optional
-
-No architectural decision should quietly introduce a paid API, subscription, hosted database, paid storage layer, or pay-as-you-go dependency.
-
----
-
-# 9. Practical Build Order
-
-The implementation order is intentionally strict:
+### Dependency order
 
 ```text
-0  GitHub + architecture contracts
-1  Reliability / safety
-2  Metadata / index
-3  Durable Job Engine
-4  Transfer Manager
-5  Deterministic Organizer
-6  Archive Manager
-7  Hash / integrity / duplicates
-8  Lifecycle / safety window
-9  Backups / snapshots
-10 Monitoring / notifications
-11 CLI control plane
-12 Cache / storage intelligence
-13 WebDAV / read-only consumers
-14 Media ecosystem
-15 Media / document intelligence
-16 Advanced search
-17 Local AI
-18 Storage intelligence
-19 Time Machine / snapshots
-20 Cross-project integrations
-21 Advanced experiments
-22 Optional control center
+Phase 0
+  ↓
+Phase 1 + Phase 2
+  ↓
+Phase 3
+  ↓
+Phase 4
+  ↓
+Phase 5
+  ↓
+Phase 6
+  ↓
+Phase 7
+  ↓
+Phase 8 + Phase 9
+  ↓
+Phase 10 + Phase 11
+  ↓
+Phase 12 + Phase 13
+  ↓
+Phase 14–16
+  ↓
+Phase 17
+  ↓
+Phase 18–22
 ```
 
-### Gate rule
-
-A phase may be marked complete only when:
-
-1. implementation exists,
-2. tests exist,
-3. failure behavior is understood,
-4. safety invariants are preserved,
-5. resource behavior is acceptable,
-6. documentation reflects the actual implementation.
+Later phases may be researched early, but implementation should respect dependency and safety gates.
 
 ---
 
-# 10. Definition of Done for TelDrive Lab
+# Canonical Product Principle
 
-TelDrive Lab is successful when it can provide a durable, observable, searchable, verifiable, and automation-friendly control plane around the existing TelDrive deployment while satisfying all of these invariants:
+> **TelDrive Lab makes the existing TelDrive storage system reliable, observable, searchable, automatable, verifiable, and safely extensible — without requiring migration, replacement, or loss of human control.**
 
-- existing storage remains authoritative
-- existing production remains intact
-- the Lab can be deleted and rebuilt independently
-- metadata can be rebuilt
-- jobs survive process crashes and network interruptions
-- transfers are bounded and recoverable
-- archival completion requires verification
-- destructive operations require explicit authorization
-- every important mutation is auditable
-- AI remains optional and non-authoritative
-- the system works without paid infrastructure
-- the laptop remains within practical resource limits
-- integrations do not create hidden coupling
-- Telegram API usage remains conservative
-
-**The roadmap optimizes for reliability first, automation second, intelligence third.**
+The Lab's most important property is not maximum automation. It is **durable, reversible, verified automation with the existing storage preserved as the authority.**
