@@ -1,8 +1,8 @@
 name: audit-remediation
 
 on:
-  push:
-    branches: [audit-remediation-20260911]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -13,14 +13,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: audit-remediation-20260911
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip pytest
       - run: pip install -e .
-      - run: python scripts/apply_audit_remediation_v2.py
-      - run: python scripts/apply_audit_remediation_v3.py
+      - name: Apply audit remediation
+        if: ${{ !hashFiles('AUDIT_REMEDIATION_APPLIED') }}
+        run: |
+          python scripts/apply_audit_remediation_v5.py
+          python scripts/apply_audit_remediation_v7.py
+          touch AUDIT_REMEDIATION_APPLIED
       - run: python -m compileall -q teldrive_lab tests scripts
       - run: pytest
       - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
@@ -32,9 +38,14 @@ jobs:
       - run: PYTHONPATH="$PWD" python scripts/phase10_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase11_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phases12_22_host_gate.py
-      - run: git status --short
-      - run: git config user.name "github-actions[bot]"
-      - run: git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      - run: git add teldrive_lab tests scripts
-      - run: git diff --cached --quiet || git commit -m "fix: close audit certification boundaries"
-      - run: git push origin HEAD:audit-remediation-20260911
+      - name: Commit verified remediation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add teldrive_lab tests AUDIT_REMEDIATION_APPLIED
+          if git diff --cached --quiet; then
+            echo "No remediation changes to commit"
+          else
+            git commit -m "fix: close audit certification boundaries"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
