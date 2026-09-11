@@ -16,7 +16,7 @@ jobs:
       - run: python -m pip install --upgrade pip pytest
       - run: pip install -e .
       - run: python scripts/apply_audit_remediation_v5.py
-      - run: python scripts/apply_audit_remediation_v6.py
+      - run: python scripts/apply_audit_remediation_v7.py
       - run: python -m compileall -q teldrive_lab tests scripts
       - run: pytest
       - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
