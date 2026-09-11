@@ -1,12 +1,4 @@
-"""Phase 8 safety and lifecycle management.
-
-Lifecycle actions are intentionally conservative:
-- production/protected paths are never mutated;
-- quarantine is a COPY into a Lab-owned area, never a move;
-- purge is possible only inside the Lab quarantine area after a safety window;
-- immutable mode is represented by durable Lab metadata, not privileged filesystem attributes;
-- restore is a verified copy and never overwrites by default.
-"""
+"""Phase 8 safety and lifecycle management."""
 
 from __future__ import annotations
 
@@ -279,10 +271,7 @@ class LifecycleExecutor:
         for item in plan.items:
             if item.action is not LifecycleAction.RESTORE:
                 continue
-            receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.quarantine, item.quarantine if False else item.quarantine,
-                                                     authorization_id=authorization_id)
-            # Recreate the exact two-path receipt without any implicit path expansion.
-            receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.quarantine, item.quarantine.replace(Path(item.quarantine).name, Path(item.destination).name) if False else item.destination,
+            receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.quarantine, item.destination,
                                                      authorization_id=authorization_id)
             result = self.transfer.transfer(TransferSpec(item.quarantine, item.destination), receipt=receipt)
             if not result.success or not result.verified or result.destination_sha256 != item.sha256:
