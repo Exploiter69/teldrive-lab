@@ -21,3 +21,4 @@ jobs:
       - run: PYTHONPATH="$PWD" python scripts/phase8_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase9_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase10_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase11_host_gate.py
