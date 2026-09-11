@@ -16,3 +16,4 @@ jobs:
       - run: python -m pip install --upgrade pip pytest
       - run: pip install -e .
       - run: pytest
+      - run: PYTHONPATH="$PWD" python scripts/phase6_host_gate.py
