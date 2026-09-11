@@ -61,10 +61,14 @@ class Decision:
 
 
 def _resolve(path: str | Path) -> Path:
-    """Normalize a path without depending on the executing user's HOME."""
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        candidate = Path.cwd() / candidate
+    """Normalize paths while keeping ``~`` bound to the protected production home."""
+    raw = str(path)
+    if raw == "~" or raw.startswith("~/"):
+        candidate = PRODUCTION_HOME / raw[2:] if raw.startswith("~/") else PRODUCTION_HOME
+    else:
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = Path.cwd() / candidate
     return candidate.resolve(strict=False)
 
 
