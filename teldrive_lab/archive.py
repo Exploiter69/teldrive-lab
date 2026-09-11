@@ -39,9 +39,6 @@ class ArchivePolicy:
     require_hash: bool = True
 
     def destination(self, source: Path, archive_root: Path) -> Path:
-        # Preserve only the filename by default. Directory structure can be
-        # represented by an explicit policy later; never derive paths from
-        # untrusted '..' components.
         name = source.name
         if not name or name in {".", ".."}:
             raise ValueError("invalid archive source filename")
@@ -101,7 +98,7 @@ class ArchivePlanner:
     def _existing_hashes(records: Iterable[FileRecord]) -> dict[tuple[int, str], str]:
         result: dict[tuple[int, str], str] = {}
         for record in records:
-            if record.sha256 and record.size >= 0:
+            if record.sha256 and record.size is not None and record.size >= 0:
                 result[(record.size, record.sha256)] = record.path
         return result
 
@@ -116,14 +113,14 @@ class ArchivePlanner:
         known = self._existing_hashes(existing_records)
         items: list[ArchiveItem] = []
 
-        for record in sorted(records, key=lambda r: (r.path, r.name, r.id)):
+        for record in sorted(records, key=lambda r: (r.path, r.name, r.id or 0)):
             source = Path(record.path)
             if self.policy.require_local_source and record.source_type is not SourceType.LOCAL:
-                candidate = ArchiveCandidate(str(source), "", record.size, record.sha256 or "", record.source_type)
+                candidate = ArchiveCandidate(str(source), "", record.size or 0, record.sha256 or "", record.source_type)
                 items.append(ArchiveItem(candidate, ArchiveAction.BLOCKED, "archive source must be LOCAL"))
                 continue
             if not source.is_file():
-                candidate = ArchiveCandidate(str(source), "", record.size, record.sha256 or "", record.source_type)
+                candidate = ArchiveCandidate(str(source), "", record.size or 0, record.sha256 or "", record.source_type)
                 items.append(ArchiveItem(candidate, ArchiveAction.BLOCKED, "archive source is not a regular file"))
                 continue
 
