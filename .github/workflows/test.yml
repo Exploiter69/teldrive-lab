@@ -15,22 +15,8 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip pytest
       - run: pip install -e .
-      - name: Diagnose remediation patterns
-        run: python scripts/diagnose_audit_remediation.py
-      - name: Upload remediation diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: remediation-pattern-report
-          path: remediation_pattern_report.txt
-      - name: Diagnose v2 execution
-        run: python scripts/diagnose_v2_execution.py
-      - name: Upload v2 execution report
-        uses: actions/upload-artifact@v4
-        with:
-          name: remediation-v2-execution-report
-          path: remediation_v2_execution_report.txt
-      - run: python scripts/apply_audit_remediation_v2.py
-      - run: python scripts/apply_audit_remediation_v3.py
+      - run: python scripts/apply_audit_remediation_v5.py
+      - run: python scripts/apply_audit_remediation_v6.py
       - run: python -m compileall -q teldrive_lab tests scripts
       - run: pytest
       - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
