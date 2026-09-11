@@ -15,6 +15,13 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip pytest
       - run: pip install -e .
+      - name: Diagnose post-remediation pytest
+        run: python scripts/diagnose_pytest_remediation.py
+      - name: Upload post-remediation pytest report
+        uses: actions/upload-artifact@v4
+        with:
+          name: remediation-pytest-report
+          path: remediation_pytest_report.txt
       - run: python scripts/apply_audit_remediation_v5.py
       - run: python scripts/apply_audit_remediation_v7.py
       - run: python -m compileall -q teldrive_lab tests scripts
