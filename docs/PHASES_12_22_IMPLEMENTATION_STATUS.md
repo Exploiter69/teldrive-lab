@@ -1,6 +1,6 @@
 # Phase 12–22 Implementation Status
 
-This status file accompanies `ROADMAP.md`; it does not replace or rewrite the canonical roadmap.
+This status file accompanies `ROADMAP.md` and records the implementation meaning of completion without claiming that optional external ecosystems are installed on every host.
 
 ## Current state
 
@@ -22,9 +22,17 @@ The roadmap features for Phases 12–22 have a concrete implementation in `teldr
 
 ## Important meaning of COMPLETE
 
-"Complete" means the roadmap capability exists without requiring a paid service and without violating the production boundary. Optional tools such as ffmpeg, tesseract, Whisper, Ollama, llama.cpp, Jellyfin, Plex, or remote workers are adapters/providers, not hidden mandatory dependencies.
+**Complete means the Lab capability exists safely in code, tests, or an explicit adapter/contract layer. It does not mean every optional ecosystem is installed, configured, or operational on the primary laptop.**
 
-A provider being absent means the corresponding optional operation reports unavailable capability; it does not silently substitute a remote paid API.
+Optional providers include ffmpeg/ffprobe, Tesseract, Whisper, llama.cpp, Ollama, Jellyfin, Plex, and remote workers. A missing provider must report unavailable capability rather than silently falling back to a paid remote service.
+
+### Primary laptop AI constraint
+
+**Ollama is not a required dependency and is not assumed to be usable on the primary laptop.** The core Lab must work normally with Ollama completely unavailable. No indexing, search, archive, organization, backup, verification, monitoring, snapshot, or control-center workflow may depend on Ollama or any local LLM.
+
+The existing Ollama adapter is therefore an **optional external-host provider**, not a laptop requirement. If the provider is unavailable, the deterministic/local non-LLM capability remains the supported path.
+
+This preserves the project's ₹0 constraint and avoids pretending that heavyweight local AI is practical on constrained hardware.
 
 ## Safety
 
@@ -39,3 +47,7 @@ The following remain false by construction:
 - untrusted remote-worker mutation
 
 All mutation-capable future work must continue through the existing Lab policy, authorization, execution, verification, and audit boundaries.
+
+## Verification
+
+The expanded Phase 12–22 suite and host gate have been run successfully on the primary development machine. The repository should still treat optional provider availability as a separate host capability check rather than as a core Lab prerequisite.
