@@ -15,7 +15,12 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip pytest
       - run: pip install -e .
+      - run: python scripts/apply_audit_remediation_v2.py
+      - run: python scripts/apply_audit_remediation_v3.py
+      - run: python -m compileall -q teldrive_lab tests scripts
       - run: pytest
+      - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase5_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase6_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase7_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase8_host_gate.py
@@ -23,3 +28,4 @@ jobs:
       - run: PYTHONPATH="$PWD" python scripts/phase10_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase11_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phases12_22_host_gate.py
+      - run: git status --short
