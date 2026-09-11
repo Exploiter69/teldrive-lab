@@ -42,8 +42,8 @@ jobs:
       - name: Clean remediation-only artifacts
         run: |
           find . -type d -name __pycache__ -prune -exec rm -rf {} +
-          git checkout main -- .github/workflows/test.yml
-          git rm -f AUDIT_REMEDIATION_APPLIED AUDIT_REMEDIATION_TRIGGER.md .github/workflows/audit-remediation.yml || true
+          git checkout origin/main -- .github/workflows/test.yml
+          git rm -f AUDIT_REMEDIATION_APPLIED AUDIT_REMEDIATION_TRIGGER.md .github/workflows/audit-remediation.yml AUDIT_CLEANUP_TRIGGER.md || true
           git rm -f scripts/apply_audit_remediation.py scripts/apply_audit_remediation_v2.py scripts/apply_audit_remediation_v3.py scripts/apply_audit_remediation_v5.py scripts/apply_audit_remediation_v6.py scripts/apply_audit_remediation_v7.py scripts/diagnose_audit_remediation.py scripts/diagnose_v2_execution.py scripts/diagnose_pytest_remediation.py || true
       - name: Commit remediation
         run: |
