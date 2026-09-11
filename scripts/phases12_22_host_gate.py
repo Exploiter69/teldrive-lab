@@ -51,7 +51,11 @@ def main() -> int:
         assert growth_forecast([(0,100),(86400,200)])['bytes_per_day']==100
         assert category_analysis(root.iterdir())
         assert transfer_cost_estimate(1024)['currency']=='NONE'
-        snap=root/'advanced-snapshot.json'; snap_data=create_snapshot(root,snap); assert verify_snapshot(snap,root)['verified']
+        # A snapshot manifest must live outside the tree it describes. Placing
+        # it inside root would make the newly-created manifest an extra file
+        # during verification and create a self-referential snapshot boundary.
+        snap=Path(raw).parent/'advanced-snapshot.json'
+        snap_data=create_snapshot(root,snap); assert verify_snapshot(snap,root)['verified']
         assert project_contracts() and ai_workflow_plan([{'id':'gate'}])['ai_authoritative'] is False
         cas=CASStore(root/'cas'); digest=cas.put(root/'fixture.txt'); assert cas.has(digest)
         assert dedup_plan([root/'fixture.txt'])==[]
