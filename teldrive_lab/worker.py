@@ -10,11 +10,11 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .audit import record_event
 from .jobs import Job, JobState, JobStore
-from .safety import Operation, authorize
+from .safety import AuthorizationReceipt, Operation, authorize
 
 
 class ExecutionStatus(str, Enum):
@@ -36,20 +36,25 @@ class ExecutionResult:
 class JobExecutor(Protocol):
     """Narrow side-effect boundary implemented by concrete executors."""
 
-    def execute(self, job: Job) -> ExecutionResult:
+    def execute(self, job: Job, authorization: AuthorizationReceipt | None = None) -> ExecutionResult:
         ...
+
+
+AuthorizationProvider = Callable[[Job], AuthorizationReceipt | None]
 
 
 class Worker:
     """Claim and coordinate one durable job without self-authorizing it."""
 
     def __init__(self, store: JobStore, executor: JobExecutor, *, worker_id: str | None = None,
-                 audit_conn=None, lease_seconds: float = 300) -> None:
+                 audit_conn=None, lease_seconds: float = 300,
+                 authorization_provider: AuthorizationProvider | None = None) -> None:
         self.store = store
         self.executor = executor
         self.worker_id = worker_id or uuid.uuid4().hex
         self.audit_conn = audit_conn
         self.lease_seconds = lease_seconds
+        self.authorization_provider = authorization_provider
 
     def run_once(self) -> Job | None:
         job = self.store.claim(self.worker_id, self.lease_seconds)
@@ -57,7 +62,8 @@ class Worker:
             return None
 
         self._audit("worker.claim", job, "ALLOWED", "CLAIMED")
-        decision = self._safety_decision(job)
+        authorization = self.authorization_provider(job) if self.authorization_provider else None
+        decision = self._safety_decision(job, authorization)
         if not decision.allowed:
             self._audit("worker.safety_gate", job, "DENIED", "BLOCKED",
                         error_code="UNSAFE_OPERATION", details={"reason": decision.reason})
@@ -68,9 +74,10 @@ class Worker:
                         error_code="UNSAFE_OPERATION")
             return failed
 
-        self._audit("worker.safety_gate", job, "ALLOWED", "APPROVED")
+        self._audit("worker.safety_gate", job, "ALLOWED", "APPROVED",
+                    details={"authorization_id": authorization.authorization_id if authorization else None})
         try:
-            result = self.executor.execute(job)
+            result = self.executor.execute(job, authorization)
         except Exception as exc:
             result = ExecutionResult(ExecutionStatus.RETRYABLE,
                                      error_code="EXECUTOR_EXCEPTION",
@@ -128,11 +135,9 @@ class Worker:
             return Operation.VERIFY
         return Operation.TRANSFER
 
-    def _safety_decision(self, job: Job):
+    def _safety_decision(self, job: Job, authorization: AuthorizationReceipt | None = None):
         paths = [p for p in (job.source, job.destination, job.path) if p]
-        # A worker never supplies explicit authorization. A queued job or lease
-        # is not authorization; a higher-level control surface must provide it.
-        return authorize(self._operation_for(job), *paths)
+        return authorize(self._operation_for(job), *paths, receipt=authorization)
 
     def _audit(self, operation: str, job: Job, decision: str, result: str, *,
                error_code: str | None = None, details: dict | None = None) -> None:
