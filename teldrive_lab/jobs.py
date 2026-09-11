@@ -192,6 +192,20 @@ class JobStore:
             raise ValueError("job cannot be completed by this worker")
         return self.get(job_id)
 
+    def fail(self, job_id: str, worker_id: str, *, error_code: str,
+             error_message: str) -> Job:
+        now = time.time()
+        with self._connect() as conn:
+            changed = conn.execute(
+                """UPDATE jobs SET state='FAILED', attempts=attempts+1,
+                   error_code=?, error_message=?, updated=?, lease_until=NULL,
+                   worker_id=NULL WHERE job_id=? AND worker_id=? AND state='RUNNING'""",
+                (error_code, error_message, now, job_id, worker_id),
+            ).rowcount
+        if not changed:
+            raise ValueError("job cannot be failed by this worker")
+        return self.get(job_id)
+
     def cancel(self, job_id: str) -> Job:
         now = time.time()
         with self._connect() as conn:
