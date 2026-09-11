@@ -4,11 +4,12 @@ import argparse
 import json
 import uuid
 
+from .archive import ArchiveExecutor, ArchivePlanner
 from .audit import open_audit, record_event
+from .catalog import open_default_catalog
 from .health import health_dict
 from .models import SourceType
 from .organization import OrganizationExecutor, OrganizationPlanner
-from .catalog import open_default_catalog
 from .runtime import ensure_runtime
 
 
@@ -23,12 +24,47 @@ def _add_organization_parser(sub: argparse._SubParsersAction) -> None:
     mode.add_argument("--apply", action="store_true", help="explicitly authorize and apply a safe Lab-only plan")
 
 
+def _add_archive_parser(sub: argparse._SubParsersAction) -> None:
+    parser = sub.add_parser("archive", help="plan or explicitly apply a one-way archive workflow")
+    parser.add_argument("--source-type", choices=[item.value for item in SourceType], required=True)
+    parser.add_argument("--source-id", required=True, help="catalog source identifier")
+    parser.add_argument("--archive-root", required=True, help="archive destination root")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="show the archive plan without mutation")
+    mode.add_argument("--apply", action="store_true", help="explicitly authorize and apply a safe Lab-only plan")
+
+
+def _archive_payload(plan) -> dict:
+    return {
+        "digest": plan.digest,
+        "total": plan.total,
+        "copy": plan.copy_count,
+        "duplicate": plan.duplicate_count,
+        "conflict": plan.conflict_count,
+        "blocked": plan.blocked_count,
+        "items": [
+            {
+                "source": item.candidate.source,
+                "destination": item.candidate.destination,
+                "size": item.candidate.size,
+                "sha256": item.candidate.sha256,
+                "source_type": item.candidate.source_type.value,
+                "duplicate_of": item.candidate.duplicate_of,
+                "action": item.action.value,
+                "reason": item.reason,
+            }
+            for item in plan.items
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="td")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="run read-only system health checks")
     sub.add_parser("init", help="initialize Lab-owned runtime directories")
     _add_organization_parser(sub)
+    _add_archive_parser(sub)
     args = parser.parse_args()
 
     paths = ensure_runtime()
@@ -49,26 +85,14 @@ def main() -> int:
         if args.command == "organize":
             catalog = open_default_catalog()
             records = catalog.list_source(SourceType(args.source_type), args.source_id)
-            plan = OrganizationPlanner().plan(
-                records, raw_root=args.raw_root, crypt_root=args.crypt_root
-            )
+            plan = OrganizationPlanner().plan(records, raw_root=args.raw_root, crypt_root=args.crypt_root)
             payload = {
-                "digest": plan.digest,
-                "total": plan.total,
-                "copy": plan.copy_count,
-                "noop": plan.noop_count,
-                "conflict": plan.conflict_count,
-                "blocked": plan.blocked_count,
+                "digest": plan.digest, "total": plan.total, "copy": plan.copy_count,
+                "noop": plan.noop_count, "conflict": plan.conflict_count, "blocked": plan.blocked_count,
                 "items": [
-                    {
-                        "source": item.source,
-                        "destination": item.destination,
-                        "class": item.file_class.value,
-                        "storage": item.storage_class.value,
-                        "rule": item.rule_id,
-                        "action": item.action.value,
-                        "reason": item.reason,
-                    }
+                    {"source": item.source, "destination": item.destination, "class": item.file_class.value,
+                     "storage": item.storage_class.value, "rule": item.rule_id,
+                     "action": item.action.value, "reason": item.reason}
                     for item in plan.items
                 ],
             }
@@ -77,17 +101,39 @@ def main() -> int:
                              decision="allowed", result="dry-run", details={"digest": plan.digest})
                 print(json.dumps(payload, indent=2))
                 return 0
-
             if plan.blocked_count or plan.conflict_count:
                 record_event(audit, event_id=str(uuid.uuid4()), operation="organize-apply",
                              decision="denied", result="blocked",
-                             details={"digest": plan.digest, "blocked": plan.blocked_count,
-                                      "conflict": plan.conflict_count})
+                             details={"digest": plan.digest, "blocked": plan.blocked_count, "conflict": plan.conflict_count})
                 print(json.dumps(payload, indent=2))
                 return 2
-
             result = OrganizationExecutor().apply(plan, authorization_id=f"cli:{uuid.uuid4()}")
             record_event(audit, event_id=str(uuid.uuid4()), operation="organize-apply",
+                         decision="allowed", result="completed" if result.success else "failed",
+                         details={"digest": plan.digest, "transfers": len(result.results)})
+            payload["applied"] = len(result.results)
+            payload["success"] = result.success
+            print(json.dumps(payload, indent=2))
+            return 0 if result.success else 1
+        if args.command == "archive":
+            catalog = open_default_catalog()
+            records = catalog.list_source(SourceType(args.source_type), args.source_id)
+            plan = ArchivePlanner().plan(records, archive_root=args.archive_root)
+            payload = _archive_payload(plan)
+            if not args.apply:
+                record_event(audit, event_id=str(uuid.uuid4()), operation="archive-plan",
+                             decision="allowed", result="dry-run", details={"digest": plan.digest})
+                print(json.dumps(payload, indent=2))
+                return 0
+            if plan.blocked_count or plan.conflict_count or plan.duplicate_count:
+                record_event(audit, event_id=str(uuid.uuid4()), operation="archive-apply",
+                             decision="denied", result="blocked",
+                             details={"digest": plan.digest, "blocked": plan.blocked_count,
+                                      "conflict": plan.conflict_count, "duplicate": plan.duplicate_count})
+                print(json.dumps(payload, indent=2))
+                return 2
+            result = ArchiveExecutor().apply(plan, authorization_id=f"cli:{uuid.uuid4()}")
+            record_event(audit, event_id=str(uuid.uuid4()), operation="archive-apply",
                          decision="allowed", result="completed" if result.success else "failed",
                          details={"digest": plan.digest, "transfers": len(result.results)})
             payload["applied"] = len(result.results)
