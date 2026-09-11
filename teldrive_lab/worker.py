@@ -84,9 +84,6 @@ class Worker:
                                      error_code="EXECUTOR_EXCEPTION",
                                      error_message=str(exc))
 
-        # Cancellation/pause may be requested cooperatively while an executor is
-        # running. Once the durable state leaves RUNNING, the worker must not
-        # overwrite that control decision with a completion/failure transition.
         current = self.store.get(job.job_id)
         if current.state is not JobState.RUNNING or current.worker_id != self.worker_id:
             self._audit(
@@ -129,14 +126,17 @@ class Worker:
         raise RuntimeError(f"unsupported execution status: {result.status}")
 
     def _execute(self, job: Job, authorization: AuthorizationReceipt | None) -> ExecutionResult:
-        """Call both modern and legacy executors without masking real failures."""
+        """Call modern executors with authorization and legacy executors unchanged."""
         execute = self.executor.execute
-        try:
-            signature = inspect.signature(execute)
-            signature.bind(job, authorization)
-        except (TypeError, ValueError):
-            return execute(job)
-        return execute(job, authorization)
+        parameters = inspect.signature(execute).parameters.values()
+        positional = [
+            parameter for parameter in parameters
+            if parameter.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        has_varargs = any(parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters)
+        if has_varargs or len(positional) >= 2:
+            return execute(job, authorization)
+        return execute(job)
 
     @staticmethod
     def _operation_for(job: Job) -> Operation:
