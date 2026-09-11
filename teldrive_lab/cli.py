@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import uuid
 from dataclasses import asdict
 
@@ -31,10 +32,7 @@ def _json(value: object) -> None:
 
 
 def _job_payload(job) -> dict[str, object]:
-    data = asdict(job)
-    data["type"] = job.type.value
-    data["state"] = job.state.value
-    return data
+    data = asdict(job); data["type"] = job.type.value; data["state"] = job.state.value; return data
 
 
 def _audit(conn, *, operation: str, decision: str, result: str, job_id: str | None = None, details: dict | None = None) -> None:
@@ -43,8 +41,7 @@ def _audit(conn, *, operation: str, decision: str, result: str, job_id: str | No
 
 def _add_organization_parser(sub):
     p = sub.add_parser("organize", help="plan or explicitly apply deterministic organization")
-    p.add_argument("--source-type", choices=[x.value for x in SourceType], required=True); p.add_argument("--source-id", required=True)
-    p.add_argument("--raw-root", required=True); p.add_argument("--crypt-root", required=True)
+    p.add_argument("--source-type", choices=[x.value for x in SourceType], required=True); p.add_argument("--source-id", required=True); p.add_argument("--raw-root", required=True); p.add_argument("--crypt-root", required=True)
     mode = p.add_mutually_exclusive_group(); mode.add_argument("--dry-run", action="store_true"); mode.add_argument("--apply", action="store_true")
 
 
@@ -93,14 +90,8 @@ def _add_index_parser(sub):
     p = sub.add_parser("index", help="bounded read-only filesystem metadata indexing"); p.add_argument("root"); p.add_argument("--source-type", choices=[x.value for x in SourceType], default=SourceType.LOCAL.value); p.add_argument("--source-id")
 
 
-def _add_health_parser(sub):
-    sub.add_parser("health", help="read-only system health report")
-
-
-def _add_status_parser(sub):
-    sub.add_parser("status", help="compact operator status report")
-
-
+def _add_health_parser(sub): sub.add_parser("health", help="read-only system health report")
+def _add_status_parser(sub): sub.add_parser("status", help="compact operator status report")
 def _add_audit_parser(sub):
     p = sub.add_parser("audit", help="read-only audit event history"); p.add_argument("--limit", type=int, default=50); p.add_argument("--operation")
 
@@ -133,14 +124,13 @@ def main() -> int:
     args = parser.parse_args(); paths = ensure_runtime(); audit = open_audit(paths.state / "audit.db")
     try:
         if args.command == "init": _json({"runtime": str(paths.root), "state": str(paths.state), "cache": str(paths.cache)}); return 0
-        if args.command in {"status", "health"}:
-            _json(health_dict()); return 0
+        if args.command in {"status", "health"}: _json(health_dict()); return 0
         if args.command == "search":
             catalog = open_default_catalog(); results = catalog.search(args.query, limit=args.limit); _json({"query": args.query, "count": len(results), "items": [asdict(r) for r in results]}); return 0
         if args.command == "index":
             catalog = open_default_catalog(); result = Indexer(catalog).scan(args.root, source_type=SourceType(args.source_type), source_identifier=args.source_id); _audit(audit, operation="INDEX", decision="ALLOWED_READ_ONLY", result="COMPLETED", details={"root": result.root, "indexed": result.indexed, "bounded": result.bounded}); _json(asdict(result)); return 0
         if args.command == "jobs":
-            store = JobStore(paths.state / "jobs.db"); state = JobState(args.state) if args.state else None; _json({"count": len(store.list_jobs(state=state, limit=args.limit)), "items": [_job_payload(j) for j in store.list_jobs(state=state, limit=args.limit)]}); return 0
+            store = JobStore(paths.state / "jobs.db"); state = JobState(args.state) if args.state else None; jobs = store.list_jobs(state=state, limit=args.limit); _json({"count": len(jobs), "items": [_job_payload(j) for j in jobs]}); return 0
         if args.command == "job":
             try: job = JobStore(paths.state / "jobs.db").get(args.job_id)
             except KeyError: _json({"success": False, "error": "job not found", "job_id": args.job_id}); return 2
@@ -151,7 +141,7 @@ def main() -> int:
             sql = "SELECT event_id,timestamp,operation,job_id,source,destination,decision,result,checksum,error_code,details_json FROM events"; params = []
             if args.operation: sql += " WHERE operation=?"; params.append(args.operation)
             sql += " ORDER BY id DESC LIMIT ?"; params.append(args.limit)
-            rows = audit.execute(sql, params).fetchall(); _json([dict(r) for r in rows]); return 0
+            rows = audit.execute(sql, params).fetchall(); columns = ["event_id","timestamp","operation","job_id","source","destination","decision","result","checksum","error_code","details_json"]; _json([dict(zip(columns, row)) for row in rows]); return 0
         if args.command == "monitor":
             store = MonitoringStore(paths.state / "monitor.db")
             if args.action == "health": _json(health_dict()); return 0
