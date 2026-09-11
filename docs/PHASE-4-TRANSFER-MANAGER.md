@@ -118,6 +118,12 @@ It checks:
 
 It deliberately performs no live TelDrive or rclone mutation.
 
+### 8. Isolated benchmark
+
+`scripts/phase4_benchmark.py` measures synthetic local transfer throughput for selected worker counts using only a temporary directory.
+
+The benchmark is intentionally advisory: it reports measured throughput but never edits rclone, FUSE, systemd, Docker, TelDrive, or production configuration. Future concurrency tuning must be based on measured results plus RAM/CPU/network observations rather than guesswork.
+
 ## Recovery model
 
 Phase 4 does not claim arbitrary byte-level resumability for local copies. Instead it uses safe recovery primitives:
@@ -174,6 +180,7 @@ Phase 4 is considered implementation-complete when all of the following are true
 - [x] protected production mutation remains hard-denied
 - [x] authorization remains external and scoped
 - [x] controlled host-gate fixture exists
+- [x] isolated benchmark exists
 - [x] CI coverage exists for the transfer layer
 - [x] no live TelDrive/rclone mutation was required
 
