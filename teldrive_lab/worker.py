@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Protocol
 
 from .audit import record_event
-from .jobs import Job, JobStore
+from .jobs import Job, JobState, JobStore
 from .safety import Operation, authorize
 
 
@@ -75,6 +75,17 @@ class Worker:
             result = ExecutionResult(ExecutionStatus.RETRYABLE,
                                      error_code="EXECUTOR_EXCEPTION",
                                      error_message=str(exc))
+
+        # Cancellation/pause may be requested cooperatively while an executor is
+        # running. Once the durable state leaves RUNNING, the worker must not
+        # overwrite that control decision with a completion/failure transition.
+        current = self.store.get(job.job_id)
+        if current.state is not JobState.RUNNING or current.worker_id != self.worker_id:
+            self._audit(
+                "worker.control_race", current, "ALLOWED", current.state.value,
+                details={"execution_status": result.status.value},
+            )
+            return current
 
         if result.status is ExecutionStatus.SUCCESS:
             completed = self.store.complete(job.job_id, self.worker_id)
