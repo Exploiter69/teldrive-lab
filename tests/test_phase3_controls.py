@@ -37,9 +37,9 @@ def test_pause_rejects_wrong_worker(tmp_path: Path) -> None:
 
 def test_parent_child_summary_is_durable(tmp_path: Path) -> None:
     store = JobStore(tmp_path / "jobs.db")
-    parent = store.enqueue(JobType.ARCHIVE)
-    first = store.enqueue(JobType.INDEX, parent_job_id=parent.job_id)
-    second = store.enqueue(JobType.VERIFY, parent_job_id=parent.job_id)
+    parent = store.enqueue(JobType.ARCHIVE, priority="LOW")
+    first = store.enqueue(JobType.INDEX, parent_job_id=parent.job_id, priority="HIGH")
+    second = store.enqueue(JobType.VERIFY, parent_job_id=parent.job_id, priority="HIGH")
 
     children = store.children(parent.job_id)
     assert [child.job_id for child in children] == [first.job_id, second.job_id]
@@ -48,13 +48,15 @@ def test_parent_child_summary_is_durable(tmp_path: Path) -> None:
     assert summary.queued == 2
     assert not summary.terminal
 
-    assert store.claim("worker") is not None
+    claimed = store.claim("worker")
+    assert claimed is not None and claimed.job_id == first.job_id
     store.complete(first.job_id, "worker")
     summary = store.child_summary(parent.job_id)
     assert summary.completed == 1
     assert summary.queued == 1
 
-    assert store.claim("worker") is not None
+    claimed = store.claim("worker")
+    assert claimed is not None and claimed.job_id == second.job_id
     store.complete(second.job_id, "worker")
     summary = JobStore(tmp_path / "jobs.db").child_summary(parent.job_id)
     assert summary.successful
