@@ -7,8 +7,11 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-from teldrive_lab.archive import ArchiveAction, ArchiveExecutor, ArchivePlanner
+from teldrive_lab.archive import ArchiveAction, ArchiveExecutor, ArchiveJobExecutor, ArchivePlanner
+from teldrive_lab.jobs import Job, JobState, JobType
 from teldrive_lab.models import DestinationType, EncryptionClass, FileRecord, HashState, SourceType, VerificationState
+from teldrive_lab.safety import AuthorizationReceipt, Operation
+from teldrive_lab.worker import ExecutionStatus
 
 
 def make_record(path: Path, *, sha256: str | None = None) -> FileRecord:
@@ -43,6 +46,70 @@ def main() -> int:
         assert source.exists() and destination.read_text() == source.read_text()
         assert hashlib.sha256(source.read_bytes()).hexdigest() == hashlib.sha256(destination.read_bytes()).hexdigest()
         print("- isolated archive transfer + verification: PASS")
+
+        job_source = root_path / "job-source.txt"
+        job_destination = root_path / "job-archive" / "job-source.txt"
+        job_source.write_text("phase6 archive job gate\\n")
+        job = Job(
+            job_id="phase6-host-job",
+            type=JobType.ARCHIVE,
+            state=JobState.RUNNING,
+            priority="NORMAL",
+            attempts=0,
+            max_attempts=3,
+            retry_at=None,
+            source=str(job_source),
+            destination=str(job_destination),
+            path=str(job_source),
+            checksum=None,
+            progress=0.0,
+            error_code=None,
+            error_message=None,
+            worker_id="phase6-host-worker",
+            lease_until=None,
+            parent_job_id=None,
+        )
+        receipt = AuthorizationReceipt.for_paths(
+            Operation.TRANSFER,
+            job_source,
+            job_destination,
+            authorization_id="phase6-host-job",
+        )
+        job_result = ArchiveJobExecutor().execute(job, receipt)
+        assert job_result.status is ExecutionStatus.SUCCESS
+        assert job_destination.read_text() == job_source.read_text()
+        print("- durable ARCHIVE job through Phase 4 transfer boundary: PASS")
+
+        protected_job = Job(
+            job_id="phase6-host-protected-job",
+            type=JobType.ARCHIVE,
+            state=JobState.RUNNING,
+            priority="NORMAL",
+            attempts=0,
+            max_attempts=3,
+            retry_at=None,
+            source=str(job_source),
+            destination="/home/thakuralok/TelegramRaw/phase6-host-job.txt",
+            path=str(job_source),
+            checksum=None,
+            progress=0.0,
+            error_code=None,
+            error_message=None,
+            worker_id="phase6-host-worker",
+            lease_until=None,
+            parent_job_id=None,
+        )
+        protected_receipt = AuthorizationReceipt.for_paths(
+            Operation.TRANSFER,
+            job_source,
+            protected_job.destination,
+            authorization_id="phase6-host-protected-job",
+        )
+        protected_result = ArchiveJobExecutor().execute(protected_job, protected_receipt)
+        assert protected_result.status is ExecutionStatus.UNSAFE
+        assert protected_result.error_code == "PROTECTED_PRODUCTION"
+        assert job_source.exists()
+        print("- durable ARCHIVE job protected production boundary: PASS")
 
         protected = ArchivePlanner().plan([make_record(source)], archive_root="/home/thakuralok/TelegramRaw")
         assert protected.items[0].action is ArchiveAction.BLOCKED
