@@ -8,14 +8,12 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
-import shutil
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .advanced import MEDIA_EXTENSIONS, media_probe, media_records, subtitle_index, thumbnail_capability
+from .advanced import MEDIA_EXTENSIONS, media_records, subtitle_index, thumbnail_capability
 
 SCHEMA = "teldrive-lab.media-library.v1"
 
@@ -31,6 +29,12 @@ class MediaHealth:
     scan_ms: float
 
 
+def _subtitle_base(stem: str) -> str:
+    """Normalize common language/forced suffixes for deterministic association."""
+    parts = stem.rsplit(".", 1)
+    return parts[0] if len(parts) == 2 and len(parts[1]) in {2, 3, 5} else stem
+
+
 def discover_media(root: Path) -> dict[str, Any]:
     """Return a deterministic media catalog plus subtitle associations."""
     started = time.monotonic()
@@ -38,7 +42,7 @@ def discover_media(root: Path) -> dict[str, Any]:
     subtitles = subtitle_index(root)
     by_stem: dict[str, list[str]] = {}
     for sub in subtitles:
-        by_stem.setdefault(sub["stem"].lower(), []).append(sub["path"])
+        by_stem.setdefault(_subtitle_base(str(sub["stem"])).lower(), []).append(sub["path"])
     for item in media:
         item["subtitles"] = sorted(by_stem.get(Path(item["path"]).stem.lower(), []))
     return {"schema": SCHEMA, "root": str(root), "media": media, "subtitles": subtitles,
@@ -48,8 +52,11 @@ def discover_media(root: Path) -> dict[str, Any]:
 def library_export(root: Path, destination: Path) -> dict[str, Any]:
     """Write a stable, rebuildable media metadata export; never moves source data."""
     payload = discover_media(root)
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    payload["catalog_digest"] = hashlib.sha256(canonical.encode()).hexdigest()
+    # Timing is telemetry, not catalog identity; exclude it from the digest.
+    canonical = {k: payload[k] for k in ("schema", "root", "media", "subtitles")}
+    payload["catalog_digest"] = hashlib.sha256(
+        json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {"path": str(destination), "schema": SCHEMA, "media": len(payload["media"]),
