@@ -133,6 +133,17 @@ def search_metadata(
         if q and all(token in name for token in q):
             score += 3.0
             reasons.append("exact_name_phrase")
+
+        # Prefer a filename whose complete stem is exactly the requested
+        # non-extension term(s). This prevents a backup such as
+        # ``Alpha-copy.mp4`` from outranking the canonical ``Alpha.mp4``.
+        query_name_tokens = [token for token in q if not token.startswith(".")]
+        name_stem = Path(name).stem.casefold()
+        stem_tokens = _tokens(name_stem)
+        if query_name_tokens and stem_tokens == query_name_tokens:
+            score += 8.0
+            reasons.append("exact_filename_stem")
+
         if not q:
             score = 1.0
         if score > 0:
