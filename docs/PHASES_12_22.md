@@ -15,20 +15,20 @@ A roadmap item is considered implemented when the Lab provides a deterministic i
 | 12 | cache eviction planning | `eviction_plan` — plan only |
 | 12 | resource-aware transfers / RAM concurrency | `resource_budget` |
 | 13 | read-only JSON API | `ReadOnlyJSONAPI`, `serve_json_api` |
-| 13 | local IPC | `ipc_request` contract |
+| 13 | local IPC | `ipc_request`, `teldrive_lab.interop.serve_ipc` |
 | 13 | filesystem metadata views | `filesystem_metadata_view` |
 | 13 | catalog metadata export/import | `export_metadata`, `import_metadata`, validation |
 | 14 | media discovery | `media_records` |
 | 14 | subtitle indexing | `subtitle_index` |
 | 14 | media metadata extraction | `media_probe` with optional local ffprobe |
-| 14 | thumbnails | capability detection for local ffmpeg pipeline; sidecar-only policy |
+| 14 | thumbnails | concrete `generate_thumbnail` ffmpeg provider writing only to caller-selected sidecar destination |
 | 14 | Jellyfin/Plex | explicit read-only integration contracts and optional HTTP metadata adapter |
 | 15 | OCR | local tesseract adapter |
 | 15 | PDF metadata | local pdfinfo adapter |
-| 15 | document classification/fingerprints | deterministic document fingerprint + content classification primitives |
+| 15 | document classification/fingerprints | deterministic `classify_document`, fingerprinting |
 | 15 | local speech-to-text | local whisper CLI adapter |
 | 15 | local embeddings | deterministic local feature-hash embeddings, no remote API |
-| 15 | local vision | deterministic local visual fingerprint, optional model layer |
+| 15 | local vision | deterministic visual fingerprint + optional local vision capability detection |
 | 16 | filename/path + metadata | content index records retain path/metadata |
 | 16 | full text | bounded text extraction + TF-IDF index |
 | 16 | OCR/transcript | extracted text can be indexed from local adapters |
@@ -91,9 +91,9 @@ The extended layer guarantees:
 
 ## Tests and gates
 
-`tests/test_phases12_22_complete.py` covers the roadmap capabilities and global safety invariants. `tests/test_phases12_22.py` remains as regression coverage for the original Phase 12–22 foundation. `scripts/phases12_22_host_gate.py` remains the host safety gate and only exercises Lab-owned temporary state.
+`tests/test_phases12_22_complete.py` covers the roadmap capabilities and global safety invariants. `tests/test_phase14_15_providers.py` covers concrete media/document/IPC providers. `tests/test_phases12_22.py` remains as regression coverage for the original Phase 12–22 foundation. `scripts/phases12_22_host_gate.py` exercises both foundation and complete capability layers using only Lab-owned temporary state.
 
-The implementation is in `teldrive_lab/advanced.py`. The earlier `teldrive_lab/extended.py` foundation remains compatible and is not removed.
+The main implementation is in `teldrive_lab/advanced.py`, with concrete provider modules in `teldrive_lab/media_intelligence.py` and `teldrive_lab/interop.py`. The earlier `teldrive_lab/extended.py` foundation remains compatible and is not removed.
 
 ## Optional ecosystem policy
 
