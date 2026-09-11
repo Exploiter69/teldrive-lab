@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,6 +31,28 @@ def test_quarantine_is_deterministic_and_preserves_source(tmp_path: Path) -> Non
     assert source.read_text() == "phase8"
 
 
+def test_retention_period_is_honored(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("retained")
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    policy = RetentionPolicy(retention_seconds=3600, safety_window_seconds=60)
+    plan = LifecyclePlanner(LifecycleStore(tmp_path / "lifecycle.db")).quarantine_plan(
+        [source], quarantine_root=tmp_path / "quarantine", policy=policy, now=now,
+    )
+    assert plan.items[0].purge_after == (now + timedelta(seconds=3600)).isoformat()
+
+
+def test_safety_window_is_minimum_when_longer_than_retention(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("safe")
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    policy = RetentionPolicy(retention_seconds=60, safety_window_seconds=3600)
+    plan = LifecyclePlanner(LifecycleStore(tmp_path / "lifecycle.db")).quarantine_plan(
+        [source], quarantine_root=tmp_path / "quarantine", policy=policy, now=now,
+    )
+    assert plan.items[0].purge_after == (now + timedelta(seconds=3600)).isoformat()
+
+
 def test_protected_source_is_blocked(tmp_path: Path) -> None:
     store = LifecycleStore(tmp_path / "lifecycle.db")
     plan = LifecyclePlanner(store).quarantine_plan(
@@ -40,7 +63,7 @@ def test_protected_source_is_blocked(tmp_path: Path) -> None:
     assert "source" in plan.items[0].reason
 
 
-def test_quarantine_restore_and_verification(tmp_path: Path) -> None:
+def test_quarantine_restore_and_verification(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "source.txt"
     quarantine = tmp_path / "quarantine"
     restore = tmp_path / "restore"
@@ -48,6 +71,7 @@ def test_quarantine_restore_and_verification(tmp_path: Path) -> None:
     store = LifecycleStore(tmp_path / "lifecycle.db")
     planner = LifecyclePlanner(store)
     executor = LifecycleExecutor(store)
+    monkeypatch.setenv("TELDRIVE_LAB_RUNTIME", str(tmp_path / "runtime"))
 
     plan = planner.quarantine_plan([source], quarantine_root=quarantine,
                                    policy=RetentionPolicy(safety_window_seconds=0))
@@ -58,9 +82,16 @@ def test_quarantine_restore_and_verification(tmp_path: Path) -> None:
 
     restore_plan = planner.restore_plan(destination_root=restore)
     assert restore_plan.items[0].action is LifecycleAction.RESTORE
+    assert restore_plan.items[0].quarantine == str(quarantine / "source.txt")
+    assert restore_plan.items[0].destination == str(restore / "source.txt")
     ok, restored = executor.restore(restore_plan, authorization_id="test-restore")
     assert ok and restored
     assert Path(restored[0]).read_bytes() == source.read_bytes()
+
+    audit_path = tmp_path / "runtime" / "audit.db"
+    with sqlite3.connect(audit_path) as db:
+        operations = [row[0] for row in db.execute("SELECT operation FROM events ORDER BY id")]
+    assert operations == ["QUARANTINE", "RESTORE"]
 
 
 def test_purge_respects_safety_window_and_lock(tmp_path: Path) -> None:
@@ -86,16 +117,17 @@ def test_purge_respects_safety_window_and_lock(tmp_path: Path) -> None:
     assert locked.items[0].action is LifecycleAction.LOCKED
 
 
-def test_expired_unlocked_quarantine_can_be_explicitly_purged(tmp_path: Path) -> None:
+def test_expired_unlocked_quarantine_can_be_explicitly_purged(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "source.txt"
     quarantine = tmp_path / "quarantine"
     source.write_text("purge me")
     store = LifecycleStore(tmp_path / "lifecycle.db")
     planner = LifecyclePlanner(store)
     executor = LifecycleExecutor(store)
+    monkeypatch.setenv("TELDRIVE_LAB_RUNTIME", str(tmp_path / "runtime"))
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     plan = planner.quarantine_plan([source], quarantine_root=quarantine,
-                                   policy=RetentionPolicy(safety_window_seconds=1), now=now)
+                                   policy=RetentionPolicy(safety_window_seconds=1, retention_seconds=1), now=now)
     ok, paths = executor.quarantine(plan, authorization_id="test-quarantine")
     assert ok and paths
 
@@ -105,6 +137,29 @@ def test_expired_unlocked_quarantine_can_be_explicitly_purged(tmp_path: Path) ->
     assert ok and removed
     assert not Path(removed[0]).exists()
     assert source.exists()
+
+
+def test_reconcile_detects_missing_and_corrupt_quarantine(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    quarantine = tmp_path / "quarantine"
+    source.write_text("recover me")
+    store = LifecycleStore(tmp_path / "lifecycle.db")
+    planner = LifecyclePlanner(store)
+    executor = LifecycleExecutor(store)
+    plan = planner.quarantine_plan([source], quarantine_root=quarantine,
+                                   policy=RetentionPolicy(retention_seconds=0, safety_window_seconds=0))
+    ok, _ = executor.quarantine(plan, authorization_id="test-quarantine")
+    assert ok
+
+    verified = planner.reconcile()
+    assert verified[0].state == "VERIFIED"
+    Path(verified[0].quarantine).write_text("tampered")
+    corrupt = planner.reconcile()
+    assert corrupt[0].state == "CORRUPT_QUARANTINE"
+
+    Path(corrupt[0].quarantine).unlink()
+    missing = planner.reconcile()
+    assert missing[0].state == "MISSING_QUARANTINE"
 
 
 def test_lock_records_requires_existing_record(tmp_path: Path) -> None:
