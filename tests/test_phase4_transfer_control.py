@@ -116,6 +116,13 @@ def test_rclone_adapter_builds_non_shell_command():
 
 def test_rclone_mutation_requires_scoped_authorization():
     adapter = RcloneAdapter(runner=lambda command: subprocess.CompletedProcess(command, 0, "", ""))
-    result = adapter.copy("local.bin", "teldrive:path/file.bin")
+    result = adapter.copy("local.bin", "otherremote:path/file.bin")
     assert result.success is False
     assert "authorization" in (result.error or "")
+
+
+def test_rclone_mutation_to_protected_remote_is_blocked_before_authorization():
+    adapter = RcloneAdapter(runner=lambda command: subprocess.CompletedProcess(command, 0, "", ""))
+    result = adapter.copy("local.bin", "teldrive:path/file.bin")
+    assert result.success is False
+    assert result.error == "protected production rclone remote"
