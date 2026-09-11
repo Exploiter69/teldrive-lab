@@ -9,6 +9,7 @@ from .audit import open_audit, record_event
 from .catalog import open_default_catalog
 from .health import health_dict
 from .integrity import duplicate_groups, duplicate_payload, missing_verified_copies, verify_records
+from .lifecycle import LifecycleExecutor, LifecyclePlanner
 from .models import SourceType
 from .organization import OrganizationExecutor, OrganizationPlanner
 from .runtime import ensure_runtime
@@ -45,6 +46,13 @@ def _add_duplicate_parser(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("duplicates", help="read-only duplicate groups by size + SHA-256")
     parser.add_argument("--source-type", choices=[item.value for item in SourceType], required=True)
     parser.add_argument("--source-id", required=True, help="catalog source identifier")
+
+
+def _add_lifecycle_parser(sub: argparse._SubParsersAction) -> None:
+    parser = sub.add_parser("lifecycle", help="plan or explicitly apply Lab-owned lifecycle actions")
+    parser.add_argument("action", choices=["purge", "restore"], help="lifecycle operation")
+    parser.add_argument("--root", required=True, help="Lab-owned quarantine root for purge or restore destination root")
+    parser.add_argument("--apply", action="store_true", help="explicitly authorize the planned lifecycle action")
 
 
 def _archive_payload(plan) -> dict:
@@ -102,6 +110,7 @@ def main() -> int:
     _add_archive_parser(sub)
     _add_integrity_parser(sub)
     _add_duplicate_parser(sub)
+    _add_lifecycle_parser(sub)
     args = parser.parse_args()
 
     paths = ensure_runtime()
@@ -202,6 +211,46 @@ def main() -> int:
                          details={"groups": len(groups), "missing_verified_copies": len(missing)})
             print(json.dumps(payload, indent=2))
             return 0
+        if args.command == "lifecycle":
+            planner = LifecyclePlanner()
+            if args.action == "purge":
+                plan = planner.purge_plan()
+            else:
+                plan = planner.restore_plan(destination_root=args.root)
+            payload = {
+                "action": args.action,
+                "digest": plan.digest,
+                "total": len(plan.items),
+                "blocked": plan.blocked_count,
+                "items": [
+                    {"source": item.source, "destination": item.quarantine,
+                     "action": item.action.value, "reason": item.reason,
+                     "size": item.size, "sha256": item.sha256, "purge_after": item.purge_after}
+                    for item in plan.items
+                ],
+            }
+            if not args.apply:
+                record_event(audit, event_id=str(uuid.uuid4()), operation=f"lifecycle-{args.action}-plan",
+                             decision="allowed", result="dry-run", details={"digest": plan.digest})
+                print(json.dumps(payload, indent=2))
+                return 0
+            if plan.blocked_count:
+                record_event(audit, event_id=str(uuid.uuid4()), operation=f"lifecycle-{args.action}-apply",
+                             decision="denied", result="blocked", details={"digest": plan.digest})
+                print(json.dumps(payload, indent=2))
+                return 2
+            executor = LifecycleExecutor()
+            if args.action == "purge":
+                success, changed = executor.purge(plan, authorization_id=f"cli:{uuid.uuid4()}")
+            else:
+                success, changed = executor.restore(plan, authorization_id=f"cli:{uuid.uuid4()}")
+            payload["changed"] = list(changed)
+            payload["success"] = success
+            record_event(audit, event_id=str(uuid.uuid4()), operation=f"lifecycle-{args.action}-apply",
+                         decision="allowed", result="completed" if success else "failed",
+                         details={"digest": plan.digest, "changed": len(changed)})
+            print(json.dumps(payload, indent=2))
+            return 0 if success else 1
     finally:
         audit.close()
     return 2
