@@ -187,3 +187,7 @@ def main() -> int:
         return 2
     finally:
         audit.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
