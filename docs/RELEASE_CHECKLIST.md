@@ -7,7 +7,7 @@
 - [x] R3 — operator drill
 - [x] R4 — CI hardening
 - [x] R5 — release documentation
-- [ ] R6 — release candidate hardening
+- [x] R6 — release candidate hardening
 - [ ] R7 — v1.0 release
 
 ## R1 — Safety
@@ -53,12 +53,14 @@
 
 ## R6 — Release Candidate
 
-- [ ] Freeze feature work.
-- [ ] Re-run clean-install validation from the release candidate commit.
-- [ ] Re-run operator and production-safety gates.
-- [ ] Review package version and release notes.
-- [ ] Perform final production-boundary audit.
-- [ ] Create an RC tag only after all release-blocking checks pass.
+- [x] Freeze feature work.
+- [x] Re-run clean-install validation from the release candidate commit.
+- [x] Re-run operator and production-safety gates.
+- [x] Review package version and release notes.
+- [x] Perform final production-boundary audit.
+- [x] Create an RC tag only after all release-blocking checks pass.
+
+RC tag: `v1.0.0-rc1`
 
 ## R7 — v1.0
 
