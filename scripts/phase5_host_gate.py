@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -66,9 +65,7 @@ def main() -> int:
             [record], raw_root="/home/thakuralok/TelegramRaw", crypt_root=str(crypt_root)
         )
         assert blocked.items[0].action is OrganizationAction.BLOCKED
-        assert not (Path("/home/thakuralok/TelegramRaw") / "project" / "gate.pdf").exists() or os.path.samefile(
-            source, source
-        )
+        assert blocked.blocked_count == 1
 
     print("PHASE 5 HOST GATE: PASS")
     print("- deterministic classification and precedence: PASS")
