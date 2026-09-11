@@ -47,7 +47,7 @@ The default quarantine destination must be Lab-owned and non-protected. Existing
 
 ## Safety window and retention
 
-Every quarantine record has a durable `purge_after` timestamp. The planner will not produce `PURGE_READY` before the safety window has elapsed.
+Every quarantine record has a durable `purge_after` timestamp. `RetentionPolicy` contains both a retention period and a safety window. Purge eligibility begins only after the **longer** of those two intervals has elapsed, so neither policy can silently shorten the other.
 
 Lifecycle policy is represented explicitly by `RetentionPolicy`; deployments can select conservative retention/safety windows rather than relying on hidden timers.
 
@@ -68,12 +68,12 @@ and cannot be purged through the lifecycle executor.
 Purge is deliberately narrow:
 
 - only quarantine copies are eligible
-- safety window must have elapsed
+- retention and safety windows must both have elapsed
 - locked records are blocked
 - protected production paths are blocked by the central safety policy
 - explicit authorization is required
 - no source deletion is performed
-- deletion is followed by observable verification in the host gate
+- the lifecycle action is audited
 
 `DUPLICATE FOUND` never implies purge.
 
@@ -95,7 +95,7 @@ COPY
 SHA-256 verification
 ```
 
-Restore never overwrites an existing destination and retains the quarantine copy.
+Restore never overwrites an existing destination and retains the quarantine copy. The plan keeps the original quarantine source and requested restore destination separately, preventing source/destination confusion during recovery.
 
 ## Durable state
 
@@ -107,13 +107,24 @@ Restore never overwrites an existing destination and retains the quarantine copy
 
 The database contains source/quarantine paths, size, SHA-256, quarantine time, purge deadline, and immutable lock state. It is rebuildable metadata and is not TelDrive state.
 
-## Recovery / reconciliation behavior
+## Recovery / reconciliation
 
-The planner treats missing quarantine copies, existing restore destinations, expired/non-expired safety windows, and locked records as explicit states. It never guesses after an interrupted or externally changed lifecycle operation.
+`LifecyclePlanner.reconcile()` is a **read-only** recovery view. For every durable lifecycle record it checks whether the quarantine copy exists and whether its size and SHA-256 still match the recorded evidence. It reports explicit states:
+
+- `VERIFIED`
+- `LOCKED_VERIFIED`
+- `CORRUPT_QUARANTINE`
+- `MISSING_QUARANTINE`
+
+It never silently recreates, deletes, moves, or overwrites anything. Recovery therefore remains human-controlled: inconsistency becomes a visible state that can be replanned and explicitly authorized.
+
+## Audit
+
+Quarantine, restore, and purge executions write non-secret lifecycle events to the Lab-owned audit database through the shared audit layer. Authorization IDs and checksum evidence are recorded as metadata; secrets and credentials are never written.
 
 ## CLI / integration boundary
 
-The Phase 8 engine is exposed through the shared Lab control plane and is intended to reuse the existing Phase 4 transfer and central safety layers. No lifecycle operation is allowed to bypass authorization.
+The Phase 8 engine is exposed through the shared Lab control plane and reuses the existing Phase 4 transfer and central safety layers. No lifecycle operation is allowed to bypass authorization.
 
 ## Host gate
 
@@ -121,14 +132,16 @@ The Phase 8 engine is exposed through the shared Lab control plane and is intend
 
 - deterministic quarantine planning
 - SHA-256 evidence
+- retention and safety-window enforcement
 - verified quarantine copy
 - original-source preservation
-- safety-window enforcement
+- read-only recovery reconciliation
 - durable lifecycle metadata
 - immutable lock enforcement
-- verified restore
+- verified non-overwriting restore
 - explicit quarantine purge
 - original-source preservation after purge
+- lifecycle audit events
 - protected production boundary blocking
 
 The gate performs **zero production storage mutation**.
