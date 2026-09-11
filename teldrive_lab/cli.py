@@ -6,13 +6,14 @@ import uuid
 from dataclasses import asdict
 
 from .archive import ArchiveExecutor, ArchivePlanner
-from .audit import open_audit, record_event
+from .audit import open_audit
 from .backups import BackupExecutor, BackupPlanner, BackupStore, BackupScheduler
 from .catalog import open_default_catalog
 from .health import health_dict
 from .integrity import duplicate_groups, duplicate_payload, missing_verified_copies, verify_records
 from .lifecycle import LifecycleExecutor, LifecyclePlanner
 from .models import SourceType
+from .monitoring import MonitoringStore, collect, payload, storage_snapshot
 from .organization import OrganizationExecutor, OrganizationPlanner
 from .runtime import ensure_runtime
 
@@ -52,6 +53,13 @@ def _add_backup_schedule_parser(sub: argparse._SubParsersAction) -> None:
     parser.add_argument("action", choices=["add", "run-due"]); parser.add_argument("sources", nargs="*"); parser.add_argument("--root"); parser.add_argument("--interval", type=int, default=86400)
 
 
+def _add_monitoring_parser(sub: argparse._SubParsersAction) -> None:
+    parser = sub.add_parser("monitor", help="read-only health, storage, jobs, and alert observation")
+    parser.add_argument("action", choices=["run", "health", "jobs", "alerts", "storage"])
+    parser.add_argument("--path", action="append", dest="paths", help="filesystem path to observe; repeatable")
+    parser.add_argument("--all-alerts", action="store_true")
+
+
 def _archive_payload(plan) -> dict:
     return {"digest": plan.digest, "total": plan.total, "copy": plan.copy_count, "duplicate": plan.duplicate_count, "conflict": plan.conflict_count, "blocked": plan.blocked_count,
             "items": [{"source": i.candidate.source, "destination": i.candidate.destination, "size": i.candidate.size, "sha256": i.candidate.sha256, "source_type": i.candidate.source_type.value, "duplicate_of": i.candidate.duplicate_of, "action": i.action.value, "reason": i.reason} for i in plan.items]}
@@ -65,33 +73,44 @@ def _verification_payload(report) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="td"); sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status"); sub.add_parser("init")
-    _add_organization_parser(sub); _add_archive_parser(sub); _add_integrity_parser(sub); _add_duplicate_parser(sub); _add_lifecycle_parser(sub); _add_backup_parser(sub); _add_backup_schedule_parser(sub)
+    _add_organization_parser(sub); _add_archive_parser(sub); _add_integrity_parser(sub); _add_duplicate_parser(sub); _add_lifecycle_parser(sub); _add_backup_parser(sub); _add_backup_schedule_parser(sub); _add_monitoring_parser(sub)
     args = parser.parse_args(); paths = ensure_runtime(); audit = open_audit(paths.state / "audit.db")
     try:
         if args.command == "init": print(paths.root); return 0
-        if args.command == "status":
-            result = health_dict(); print(json.dumps(result, indent=2)); return 0 if all(x["ok"] for x in result) else 1
+        if args.command == "status": print(json.dumps(health_dict(), indent=2)); return 0
+        if args.command == "monitor":
+            store = MonitoringStore(paths.state / "monitor.db")
+            if args.action == "health": print(json.dumps(health_dict(), indent=2)); return 0
+            if args.action == "storage":
+                targets = args.paths or [str(paths.root)]
+                print(json.dumps([asdict(storage_snapshot(p)) for p in targets], indent=2)); return 0
+            if args.action == "jobs":
+                from .monitoring import job_snapshot
+                print(json.dumps(asdict(job_snapshot(paths.state / "jobs.db")), indent=2)); return 0
+            if args.action == "alerts": print(json.dumps([asdict(a) for a in store.alerts(active_only=not args.all_alerts)], indent=2)); return 0
+            snapshot = collect(store=store, audit_path=paths.state / "audit.db", job_db=paths.state / "jobs.db", storage_paths=args.paths or [paths.root])
+            print(json.dumps(payload(snapshot), indent=2)); return 0 if not snapshot.alerts else 1
         if args.command == "organize":
             catalog = open_default_catalog(); plan = OrganizationPlanner().plan(catalog.list_source(SourceType(args.source_type), args.source_id), raw_root=args.raw_root, crypt_root=args.crypt_root)
-            payload = {"digest": plan.digest, "total": plan.total, "copy": plan.copy_count, "noop": plan.noop_count, "conflict": plan.conflict_count, "blocked": plan.blocked_count, "items": [asdict(i) for i in plan.items]}
-            if not args.apply: print(json.dumps(payload, indent=2)); return 0
-            if plan.blocked_count or plan.conflict_count: print(json.dumps(payload, indent=2)); return 2
-            result = OrganizationExecutor().apply(plan, authorization_id=f"cli:{uuid.uuid4()}"); payload.update(applied=len(result.results), success=result.success); print(json.dumps(payload, indent=2)); return 0 if result.success else 1
+            payload_data = {"digest": plan.digest, "total": plan.total, "copy": plan.copy_count, "noop": plan.noop_count, "conflict": plan.conflict_count, "blocked": plan.blocked_count, "items": [asdict(i) for i in plan.items]}
+            if not args.apply: print(json.dumps(payload_data, indent=2)); return 0
+            if plan.blocked_count or plan.conflict_count: print(json.dumps(payload_data, indent=2)); return 2
+            result = OrganizationExecutor().apply(plan, authorization_id=f"cli:{uuid.uuid4()}"); payload_data.update(applied=len(result.results), success=result.success); print(json.dumps(payload_data, indent=2)); return 0 if result.success else 1
         if args.command == "archive":
-            catalog = open_default_catalog(); plan = ArchivePlanner().plan(catalog.list_source(SourceType(args.source_type), args.source_id), archive_root=args.archive_root); payload = _archive_payload(plan)
-            if not args.apply: print(json.dumps(payload, indent=2)); return 0
-            if plan.blocked_count or plan.conflict_count or plan.duplicate_count: print(json.dumps(payload, indent=2)); return 2
-            result = ArchiveExecutor().apply(plan, authorization_id=f"cli:{uuid.uuid4()}"); payload.update(applied=len(result.results), success=result.success); print(json.dumps(payload, indent=2)); return 0 if result.success else 1
+            catalog = open_default_catalog(); plan = ArchivePlanner().plan(catalog.list_source(SourceType(args.source_type), args.source_id), archive_root=args.archive_root); payload_data = _archive_payload(plan)
+            if not args.apply: print(json.dumps(payload_data, indent=2)); return 0
+            if plan.blocked_count or plan.conflict_count or plan.duplicate_count: print(json.dumps(payload_data, indent=2)); return 2
+            result = ArchiveExecutor().apply(plan, authorization_id=f"cli:{uuid.uuid4()}"); payload_data.update(applied=len(result.results), success=result.success); print(json.dumps(payload_data, indent=2)); return 0 if result.success else 1
         if args.command == "verify":
             catalog = open_default_catalog(); report = verify_records(catalog.list_source(SourceType(args.source_type), args.source_id)); print(json.dumps(_verification_payload(report), indent=2)); return 0 if report.missing == report.changed == report.mismatched == report.unverifiable == 0 else 1
         if args.command == "duplicates":
             catalog = open_default_catalog(); records = catalog.list_source(SourceType(args.source_type), args.source_id); groups = duplicate_groups(records); missing = missing_verified_copies(records); print(json.dumps({"groups": duplicate_payload(groups), "group_count": len(groups), "potential_reclaimable_bytes": sum(g.reclaimable_bytes for g in groups), "missing_verified_copies": list(missing), "destructive_action": "NONE"}, indent=2)); return 0
         if args.command == "lifecycle":
             planner = LifecyclePlanner(); plan = planner.purge_plan() if args.action == "purge" else planner.restore_plan(destination_root=args.root)
-            payload = {"action": args.action, "digest": plan.digest, "total": len(plan.items), "blocked": plan.blocked_count, "items": [{"source": i.source, "destination": i.destination or i.quarantine, "action": i.action.value, "reason": i.reason, "size": i.size, "sha256": i.sha256, "purge_after": i.purge_after} for i in plan.items]}
-            if not args.apply: print(json.dumps(payload, indent=2)); return 0
-            if plan.blocked_count: print(json.dumps(payload, indent=2)); return 2
-            executor = LifecycleExecutor(); success, changed = (executor.purge(plan, authorization_id=f"cli:{uuid.uuid4()}") if args.action == "purge" else executor.restore(plan, authorization_id=f"cli:{uuid.uuid4()}")); payload.update(changed=list(changed), success=success); print(json.dumps(payload, indent=2)); return 0 if success else 1
+            payload_data = {"action": args.action, "digest": plan.digest, "total": len(plan.items), "blocked": plan.blocked_count, "items": [{"source": i.source, "destination": i.destination or i.quarantine, "action": i.action.value, "reason": i.reason, "size": i.size, "sha256": i.sha256, "purge_after": i.purge_after} for i in plan.items]}
+            if not args.apply: print(json.dumps(payload_data, indent=2)); return 0
+            if plan.blocked_count: print(json.dumps(payload_data, indent=2)); return 2
+            executor = LifecycleExecutor(); success, changed = (executor.purge(plan, authorization_id=f"cli:{uuid.uuid4()}") if args.action == "purge" else executor.restore(plan, authorization_id=f"cli:{uuid.uuid4()}")); payload_data.update(changed=list(changed), success=success); print(json.dumps(payload_data, indent=2)); return 0 if success else 1
         if args.command == "backup":
             planner = BackupPlanner(); store = BackupStore(); executor = BackupExecutor(store); plan = planner.plan(args.sources, backup_root=args.root)
             if args.action == "plan": print(json.dumps({"digest": plan.digest, "manifest": plan.manifest_path, "items": [asdict(i) for i in plan.items]}, indent=2)); return 0
