@@ -6,6 +6,7 @@ operations and refuses mutation of the protected TelDrive production boundary.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -36,21 +37,38 @@ MUTATING = frozenset({
     Operation.RECONFIGURE,
 })
 
-# TelDrive production paths are fixed host paths, not paths relative to the
-# process user's HOME. This keeps the safety boundary identical in production,
-# CI, containers, and test environments.
+# These defaults preserve the original protected boundary. Deployments may add
+# host-specific production roots/state through environment variables, but can
+# never remove the defaults. This makes portability additive rather than a way
+# to weaken the safety boundary.
 PRODUCTION_HOME = Path("/home/thakuralok")
-PROTECTED_ROOTS = (
+DEFAULT_PROTECTED_ROOTS = (
     PRODUCTION_HOME / "TelegramRaw",
     PRODUCTION_HOME / "TelegramDrive",
     PRODUCTION_HOME / "teldrive",
     PRODUCTION_HOME / "teldrive-project",
 )
-
-PROTECTED_STATE = (
+DEFAULT_PROTECTED_STATE = (
     PRODUCTION_HOME / "teldrive" / "session.db",
     Path("/run/docker.sock"),
 )
+
+
+def _configured_paths(name: str) -> tuple[Path, ...]:
+    value = os.environ.get(name, "")
+    if not value.strip():
+        return ()
+    return tuple(Path(item).expanduser() for item in value.split(os.pathsep) if item.strip())
+
+
+def protected_roots() -> tuple[Path, ...]:
+    """Return default plus explicitly configured production roots."""
+    return DEFAULT_PROTECTED_ROOTS + _configured_paths("TELDRIVE_LAB_PROTECTED_ROOTS")
+
+
+def protected_state() -> tuple[Path, ...]:
+    """Return default plus explicitly configured production state paths."""
+    return DEFAULT_PROTECTED_STATE + _configured_paths("TELDRIVE_LAB_PROTECTED_STATE")
 
 
 @dataclass(frozen=True)
@@ -102,7 +120,7 @@ def _resolve(path: str | Path) -> Path:
 def is_protected(path: str | Path) -> bool:
     """Return True if *path* is inside a protected production root/state path."""
     candidate = _resolve(path)
-    for root in (*PROTECTED_ROOTS, *PROTECTED_STATE):
+    for root in (*protected_roots(), *protected_state()):
         root = root.resolve(strict=False)
         if candidate == root or root in candidate.parents:
             return True
@@ -112,15 +130,13 @@ def is_protected(path: str | Path) -> bool:
 def authorize(
     operation: Operation,
     *paths: str | Path,
-    explicit_authorization: bool = False,
     receipt: AuthorizationReceipt | None = None,
 ) -> Decision:
     """Make a deterministic, fail-closed policy decision.
 
     Read-only operations may inspect protected production paths. Any mutation
-    touching a protected path is denied. Non-production mutations require a
-    scope-bound receipt when a receipt is supplied; the legacy boolean remains
-    accepted for compatibility with the existing Phase 4 local backend.
+    touching a protected path is denied. Non-production mutations require an
+    exact scope-bound receipt issued by the higher-level workflow.
     """
     protected = [str(p) for p in paths if is_protected(p)]
 
@@ -128,17 +144,16 @@ def authorize(
         return Decision(False, f"protected production boundary: {', '.join(protected)}")
 
     if operation in MUTATING:
-        if receipt is not None:
-            requested = tuple(sorted(str(_resolve(path)) for path in paths))
-            if not receipt.approved:
-                return Decision(False, "authorization receipt is not approved", True)
-            if receipt.operation is not operation:
-                return Decision(False, "authorization receipt operation mismatch", True)
-            if receipt.paths != requested:
-                return Decision(False, "authorization receipt scope mismatch", True)
-            return Decision(True, f"authorized by receipt {receipt.authorization_id}")
-        if not explicit_authorization:
+        if receipt is None:
             return Decision(False, "mutation requires explicit authorization", True)
+        requested = tuple(sorted(str(_resolve(path)) for path in paths))
+        if not receipt.approved:
+            return Decision(False, "authorization receipt is not approved", True)
+        if receipt.operation is not operation:
+            return Decision(False, "authorization receipt operation mismatch", True)
+        if receipt.paths != requested:
+            return Decision(False, "authorization receipt scope mismatch", True)
+        return Decision(True, f"authorized by receipt {receipt.authorization_id}")
 
     if protected:
         return Decision(True, f"read-only access to protected production: {', '.join(protected)}")
