@@ -1,12 +1,9 @@
-"""Job executor adapter for controlled local transfers.
-
-The executor owns no authorization policy. The worker supplies the scoped
-receipt that was issued by the higher-level authorization boundary.
-"""
+"""Job executor adapter for controlled local transfers."""
 
 from __future__ import annotations
 
 from .jobs import Job, JobType
+from .retry import RetryPolicy, classify_transfer_error, RetryClass
 from .safety import AuthorizationReceipt, Operation
 from .transfer import TransferManager, TransferSpec
 from .worker import ExecutionResult, ExecutionStatus
@@ -17,8 +14,10 @@ class TransferJobExecutor:
 
     SUPPORTED = frozenset({JobType.UPLOAD, JobType.DOWNLOAD})
 
-    def __init__(self, manager: TransferManager | None = None) -> None:
+    def __init__(self, manager: TransferManager | None = None,
+                 retry_policy: RetryPolicy | None = None) -> None:
         self.manager = manager or TransferManager()
+        self.retry_policy = retry_policy or RetryPolicy()
 
     def execute(
         self,
@@ -26,30 +25,17 @@ class TransferJobExecutor:
         authorization: AuthorizationReceipt | None = None,
     ) -> ExecutionResult:
         if job.type not in self.SUPPORTED:
-            return ExecutionResult(
-                ExecutionStatus.PERMANENT,
-                error_code="UNSUPPORTED_JOB_TYPE",
-                error_message=f"transfer executor cannot execute {job.type.value}",
-            )
+            return ExecutionResult(ExecutionStatus.PERMANENT, "UNSUPPORTED_JOB_TYPE",
+                                   f"transfer executor cannot execute {job.type.value}")
         if not job.source or not job.destination:
-            return ExecutionResult(
-                ExecutionStatus.PERMANENT,
-                error_code="MISSING_TRANSFER_PATH",
-                error_message="transfer job requires source and destination",
-            )
+            return ExecutionResult(ExecutionStatus.PERMANENT, "MISSING_TRANSFER_PATH",
+                                   "transfer job requires source and destination")
 
-        operation = Operation.TRANSFER
-        if authorization is not None and authorization.operation is not operation:
-            return ExecutionResult(
-                ExecutionStatus.UNSAFE,
-                error_code="AUTHORIZATION_SCOPE_MISMATCH",
-                error_message="transfer authorization does not match TRANSFER",
-            )
+        if authorization is not None and authorization.operation is not Operation.TRANSFER:
+            return ExecutionResult(ExecutionStatus.UNSAFE, "AUTHORIZATION_SCOPE_MISMATCH",
+                                   "transfer authorization does not match TRANSFER")
 
-        result = self.manager.transfer(
-            TransferSpec(job.source, job.destination),
-            authorization=authorization,
-        )
+        result = self.manager.transfer(TransferSpec(job.source, job.destination), authorization=authorization)
         if result.success:
             return ExecutionResult(ExecutionStatus.SUCCESS)
 
@@ -60,6 +46,15 @@ class TransferJobExecutor:
             return ExecutionResult(ExecutionStatus.UNSAFE, "UNAUTHORIZED", error)
         if "destination exists" in error or "source is not" in error:
             return ExecutionResult(ExecutionStatus.PERMANENT, "TRANSFER_INPUT", error)
-        if "checksum mismatch" in error:
-            return ExecutionResult(ExecutionStatus.RETRYABLE, "VERIFY_MISMATCH", error)
-        return ExecutionResult(ExecutionStatus.RETRYABLE, "TRANSFER_FAILED", error)
+        if "exceeds max_inflight_bytes" in error:
+            return ExecutionResult(ExecutionStatus.PERMANENT, "TRANSFER_RESOURCE_LIMIT", error)
+
+        code = "VERIFY_MISMATCH" if "checksum mismatch" in error else "TRANSFER_FAILED"
+        category = classify_transfer_error(code)
+        if category is RetryClass.INTEGRITY:
+            delay = self.retry_policy.delay(max(1, job.attempts + 1), random_value=0.5)
+            return ExecutionResult(ExecutionStatus.RETRYABLE, code, error, delay)
+        if category in (RetryClass.TRANSIENT, RetryClass.RATE_LIMITED):
+            delay = self.retry_policy.delay(max(1, job.attempts + 1), random_value=0.5)
+            return ExecutionResult(ExecutionStatus.RETRYABLE, code, error, delay)
+        return ExecutionResult(ExecutionStatus.PERMANENT, code, error)
