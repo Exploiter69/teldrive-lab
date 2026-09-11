@@ -15,7 +15,12 @@ from teldrive_lab.extended import (
 
 def main() -> int:
     safety = validate_extended_safety()
-    assert all(safety.values())
+    assert safety["production_write"] is False
+    assert safety["production_delete"] is False
+    assert safety["automatic_eviction"] is False
+    assert safety["teldrive_db_write"] is False
+    assert safety["ai_authority"] is False
+    assert safety["all_mutations_require_explicit_authorization"] is True
     with tempfile.TemporaryDirectory(prefix="teldrive-lab-phases12-22-") as raw:
         root=Path(raw); (root/'cache').mkdir(); (root/'fixture.txt').write_text('safe fixture')
         obs=observe_storage(root); assert len(obs)==1 and obs[0].path=='fixture.txt'
