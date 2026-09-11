@@ -8,6 +8,7 @@ from .archive import ArchiveExecutor, ArchivePlanner
 from .audit import open_audit, record_event
 from .catalog import open_default_catalog
 from .health import health_dict
+from .integrity import duplicate_groups, duplicate_payload, missing_verified_copies, verify_records
 from .models import SourceType
 from .organization import OrganizationExecutor, OrganizationPlanner
 from .runtime import ensure_runtime
@@ -32,6 +33,18 @@ def _add_archive_parser(sub: argparse._SubParsersAction) -> None:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="show the archive plan without mutation")
     mode.add_argument("--apply", action="store_true", help="explicitly authorize and apply a safe Lab-only plan")
+
+
+def _add_integrity_parser(sub: argparse._SubParsersAction) -> None:
+    parser = sub.add_parser("verify", help="read-only SHA-256 verification report")
+    parser.add_argument("--source-type", choices=[item.value for item in SourceType], required=True)
+    parser.add_argument("--source-id", required=True, help="catalog source identifier")
+
+
+def _add_duplicate_parser(sub: argparse._SubParsersAction) -> None:
+    parser = sub.add_parser("duplicates", help="read-only duplicate groups by size + SHA-256")
+    parser.add_argument("--source-type", choices=[item.value for item in SourceType], required=True)
+    parser.add_argument("--source-id", required=True, help="catalog source identifier")
 
 
 def _archive_payload(plan) -> dict:
@@ -65,6 +78,8 @@ def main() -> int:
     sub.add_parser("init", help="initialize Lab-owned runtime directories")
     _add_organization_parser(sub)
     _add_archive_parser(sub)
+    _add_integrity_parser(sub)
+    _add_duplicate_parser(sub)
     args = parser.parse_args()
 
     paths = ensure_runtime()
@@ -140,6 +155,35 @@ def main() -> int:
             payload["success"] = result.success
             print(json.dumps(payload, indent=2))
             return 0 if result.success else 1
+        if args.command == "verify":
+            catalog = open_default_catalog()
+            records = catalog.list_source(SourceType(args.source_type), args.source_id)
+            report = verify_records(records)
+            payload = {
+                "total": len(report.results), "verified": report.verified, "missing": report.missing,
+                "changed": report.changed, "mismatched": report.mismatched, "unverifiable": report.unverifiable,
+                "items": [item.__dict__ for item in report.results],
+            }
+            record_event(audit, event_id=str(uuid.uuid4()), operation="verify",
+                         decision="allowed", result="completed",
+                         details={"total": len(report.results), "verified": report.verified,
+                                  "missing": report.missing, "mismatched": report.mismatched})
+            print(json.dumps(payload, indent=2))
+            return 0 if report.missing == report.changed == report.mismatched == report.unverifiable == 0 else 1
+        if args.command == "duplicates":
+            catalog = open_default_catalog()
+            records = catalog.list_source(SourceType(args.source_type), args.source_id)
+            groups = duplicate_groups(records)
+            missing = missing_verified_copies(records)
+            payload = {"groups": duplicate_payload(groups), "group_count": len(groups),
+                       "potential_reclaimable_bytes": sum(group.reclaimable_bytes for group in groups),
+                       "missing_verified_copies": list(missing),
+                       "destructive_action": "NONE"}
+            record_event(audit, event_id=str(uuid.uuid4()), operation="duplicates",
+                         decision="allowed", result="report",
+                         details={"groups": len(groups), "missing_verified_copies": len(missing)})
+            print(json.dumps(payload, indent=2))
+            return 0
     finally:
         audit.close()
     return 2
