@@ -30,6 +30,8 @@ class TransferLimiter:
     def acquire(self, size: int = 0) -> None:
         if size < 0:
             raise ValueError("size must be non-negative")
+        if size > self.limits.max_inflight_bytes:
+            raise ValueError("transfer exceeds max_inflight_bytes")
         self._workers.acquire()
         with self._condition:
             while self._inflight + size > self.limits.max_inflight_bytes:
