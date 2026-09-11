@@ -24,6 +24,23 @@ jobs:
           python scripts/apply_audit_remediation_v5.py
           python scripts/apply_audit_remediation_v7.py
           touch AUDIT_REMEDIATION_APPLIED
+      - name: Export verified remediation source
+        run: |
+          tar -czf remediation-source.tar.gz \
+            teldrive_lab/jobs.py \
+            teldrive_lab/worker.py \
+            teldrive_lab/transfer_executor.py \
+            teldrive_lab/lifecycle.py \
+            teldrive_lab/backups.py \
+            teldrive_lab/rclone.py \
+            teldrive_lab/job_lifecycle.py \
+            tests/test_phase3_jobs.py \
+            tests/test_phase4_transfer_control.py \
+            tests/test_audit_remediation.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-remediation-source
+          path: remediation-source.tar.gz
       - run: python -m compileall -q teldrive_lab tests scripts
       - run: pytest
       - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
