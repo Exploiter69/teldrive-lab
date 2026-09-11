@@ -1,0 +1,40 @@
+name: audit-remediation
+
+on:
+  push:
+    branches: [audit-remediation-20260911]
+
+permissions:
+  contents: write
+
+jobs:
+  remediate-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit-remediation-20260911
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip pytest
+      - run: pip install -e .
+      - run: python scripts/apply_audit_remediation_v2.py
+      - run: python scripts/apply_audit_remediation_v3.py
+      - run: python -m compileall -q teldrive_lab tests scripts
+      - run: pytest
+      - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase5_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase6_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase7_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase8_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase9_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase10_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phase11_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/phases12_22_host_gate.py
+      - run: git status --short
+      - run: git config user.name "github-actions[bot]"
+      - run: git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - run: git add teldrive_lab tests scripts
+      - run: git diff --cached --quiet || git commit -m "fix: close audit certification boundaries"
+      - run: git push origin HEAD:audit-remediation-20260911
