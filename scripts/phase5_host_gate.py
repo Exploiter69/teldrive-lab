@@ -61,9 +61,13 @@ def main() -> int:
         destination = crypt_root / "project" / "gate.pdf"
         assert result.success and destination.read_bytes() == b"phase5-gate"
 
+        image_source = root / "gate.jpg"
+        image_source.write_bytes(b"phase5-protected-gate")
+        image_record = make_record(image_source)
         blocked = planner.plan(
-            [record], raw_root="/home/thakuralok/TelegramRaw", crypt_root=str(crypt_root)
+            [image_record], raw_root="/home/thakuralok/TelegramRaw", crypt_root=str(crypt_root)
         )
+        assert blocked.items[0].storage_class.value == "RAW"
         assert blocked.items[0].action is OrganizationAction.BLOCKED
         assert blocked.blocked_count == 1
 
