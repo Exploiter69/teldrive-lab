@@ -10,11 +10,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Protocol
 
 from .audit import record_event
-from .jobs import Job, JobState, JobStore
+from .jobs import Job, JobStore
 from .safety import Operation, authorize
 
 
@@ -44,15 +43,8 @@ class JobExecutor(Protocol):
 class Worker:
     """Claim and coordinate one durable job without self-authorizing it."""
 
-    def __init__(
-        self,
-        store: JobStore,
-        executor: JobExecutor,
-        *,
-        worker_id: str | None = None,
-        audit_conn=None,
-        lease_seconds: float = 300,
-    ) -> None:
+    def __init__(self, store: JobStore, executor: JobExecutor, *, worker_id: str | None = None,
+                 audit_conn=None, lease_seconds: float = 300) -> None:
         self.store = store
         self.executor = executor
         self.worker_id = worker_id or uuid.uuid4().hex
@@ -65,34 +57,24 @@ class Worker:
             return None
 
         self._audit("worker.claim", job, "ALLOWED", "CLAIMED")
-
         decision = self._safety_decision(job)
         if not decision.allowed:
-            self._audit(
-                "worker.safety_gate", job, "DENIED", "BLOCKED",
-                error_code="UNSAFE_OPERATION", details={"reason": decision.reason},
-            )
-            failed = self.store.retry(
-                job.job_id,
-                self.worker_id,
-                error_code="UNSAFE_OPERATION",
-                error_message=decision.reason,
-                delay_seconds=0,
-            )
-            self._audit("worker.failure", failed, "DENIED", failed.state.value,
+            self._audit("worker.safety_gate", job, "DENIED", "BLOCKED",
+                        error_code="UNSAFE_OPERATION", details={"reason": decision.reason})
+            failed = self.store.fail(job.job_id, self.worker_id,
+                                     error_code="UNSAFE_OPERATION",
+                                     error_message=decision.reason)
+            self._audit("worker.failure", failed, "DENIED", "FAILED",
                         error_code="UNSAFE_OPERATION")
             return failed
 
         self._audit("worker.safety_gate", job, "ALLOWED", "APPROVED")
         try:
             result = self.executor.execute(job)
-        except Exception as exc:  # executor failures must not strand the lease
-            result = ExecutionResult(
-                ExecutionStatus.RETRYABLE,
-                error_code="EXECUTOR_EXCEPTION",
-                error_message=str(exc),
-                delay_seconds=0,
-            )
+        except Exception as exc:
+            result = ExecutionResult(ExecutionStatus.RETRYABLE,
+                                     error_code="EXECUTOR_EXCEPTION",
+                                     error_message=str(exc))
 
         if result.status is ExecutionStatus.SUCCESS:
             completed = self.store.complete(job.job_id, self.worker_id)
@@ -116,13 +98,12 @@ class Worker:
             return retried
 
         if result.status in (ExecutionStatus.PERMANENT, ExecutionStatus.UNSAFE):
-            failed = self.store.retry(
+            failed = self.store.fail(
                 job.job_id, self.worker_id,
                 error_code=result.error_code or result.status.value,
                 error_message=result.error_message or "execution failed",
-                delay_seconds=0,
             )
-            self._audit("worker.failure", failed, "ALLOWED", failed.state.value,
+            self._audit("worker.failure", failed, "ALLOWED", "FAILED",
                         error_code=failed.error_code)
             return failed
 
@@ -138,32 +119,15 @@ class Worker:
 
     def _safety_decision(self, job: Job):
         paths = [p for p in (job.source, job.destination, job.path) if p]
-        # The worker intentionally never passes explicit_authorization=True.
-        # Authorization must be supplied by a higher-level control surface in a
-        # later phase; a queued job or worker lease is not authorization.
+        # A worker never supplies explicit authorization. A queued job or lease
+        # is not authorization; a higher-level control surface must provide it.
         return authorize(self._operation_for(job), *paths)
 
-    def _audit(
-        self,
-        operation: str,
-        job: Job,
-        decision: str,
-        result: str,
-        *,
-        error_code: str | None = None,
-        details: dict | None = None,
-    ) -> None:
+    def _audit(self, operation: str, job: Job, decision: str, result: str, *,
+               error_code: str | None = None, details: dict | None = None) -> None:
         if self.audit_conn is None:
             return
-        record_event(
-            self.audit_conn,
-            event_id=uuid.uuid4().hex,
-            operation=operation,
-            job_id=job.job_id,
-            source=job.source,
-            destination=job.destination,
-            decision=decision,
-            result=result,
-            error_code=error_code,
-            details=details,
-        )
+        record_event(self.audit_conn, event_id=uuid.uuid4().hex, operation=operation,
+                     job_id=job.job_id, source=job.source, destination=job.destination,
+                     decision=decision, result=result, error_code=error_code,
+                     details=details)
