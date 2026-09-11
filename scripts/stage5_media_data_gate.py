@@ -5,6 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
+from teldrive_lab.advanced import media_probe
 from teldrive_lab.media_product import (
     cache_materialization_plan,
     discover_media,
@@ -28,13 +29,14 @@ def main() -> int:
         exported = library_export(root, export)
         discovered = discover_media(root)
         health = media_health(root)
+        probe = media_probe(movie)
         cache = cache_materialization_plan(discovered["media"], root / "cache", max_bytes=10_000)
         guidance = direct_play_guidance(discovered["media"][0])
         thumb = thumbnail_plan(discovered["media"][0], root / "poster.jpg")
         jellyfin = jellyfin_setup_plan(root / "materialized")
         result = {
             "media_discovery": len(discovered["media"]) == 1 and len(discovered["subtitles"]) == 1,
-            "technical_metadata": isinstance(health.media_files, int),
+            "technical_metadata": isinstance(probe, dict) and "available" in probe and "data" in probe,
             "subtitle_indexing": bool(discovered["media"][0]["subtitles"]),
             "stable_library_export": exported["catalog_digest"] == validate_library_export(export)["catalog_digest"],
             "cache_materialization_control": cache["mutation_performed"] is False and not (root / "cache").exists(),
