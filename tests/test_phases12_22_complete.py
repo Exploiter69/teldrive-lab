@@ -1,12 +1,11 @@
-from pathlib import Path
-import json
 from teldrive_lab.advanced import *
 
 
 def test_p12_access_heat_prefetch_eviction_and_budget(tmp_path):
     p=tmp_path/'hot.txt'; p.write_text('x'*10); db=tmp_path/'access.db'
     for _ in range(10): record_access(db,str(p))
-    heat=storage_heatmap(tmp_path,db); assert heat[0].tier=='hot'; assert prefetch_suggestions(heat)
+    heat=storage_heatmap(tmp_path,db); hot=next(x for x in heat if x.path.endswith('hot.txt'))
+    assert hot.tier=='hot'; assert prefetch_suggestions(heat)
     assert eviction_plan(heat,1)['action']=='PLAN_ONLY'
     assert resource_budget(512,256,4,8)==2
 
