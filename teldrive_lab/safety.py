@@ -60,14 +60,41 @@ class Decision:
     requires_authorization: bool = False
 
 
+@dataclass(frozen=True)
+class AuthorizationReceipt:
+    """Explicit, scope-bound approval issued outside the worker/executor.
+
+    A receipt never permits protected production mutation. It only satisfies the
+    explicit-authorization requirement for a non-production mutation whose
+    operation and exact normalized paths match this receipt.
+    """
+
+    operation: Operation
+    paths: tuple[str, ...]
+    approved: bool = True
+    authorization_id: str = "explicit"
+
+    @classmethod
+    def for_paths(
+        cls,
+        operation: Operation,
+        *paths: str | Path,
+        authorization_id: str = "explicit",
+    ) -> "AuthorizationReceipt":
+        if operation not in MUTATING:
+            raise ValueError("authorization receipts are only valid for mutations")
+        normalized = tuple(sorted(str(_resolve(path)) for path in paths))
+        return cls(operation=operation, paths=normalized, authorization_id=authorization_id)
+
+
 def _resolve(path: str | Path) -> Path:
-    """Normalize paths while keeping ``~`` bound to the protected production home."""
-    raw = str(path)
-    if raw == "~" or raw.startswith("~/"):
-        candidate = PRODUCTION_HOME / raw[2:] if raw.startswith("~/") else PRODUCTION_HOME
-    else:
-        candidate = Path(raw)
-        if not candidate.is_absolute():
+    """Normalize a path without depending on the executing user's HOME."""
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        text = str(candidate)
+        if text == "~" or text.startswith("~/"):
+            candidate = PRODUCTION_HOME / text[2:] if text != "~" else PRODUCTION_HOME
+        else:
             candidate = Path.cwd() / candidate
     return candidate.resolve(strict=False)
 
@@ -82,20 +109,36 @@ def is_protected(path: str | Path) -> bool:
     return False
 
 
-def authorize(operation: Operation, *paths: str | Path, explicit_authorization: bool = False) -> Decision:
+def authorize(
+    operation: Operation,
+    *paths: str | Path,
+    explicit_authorization: bool = False,
+    receipt: AuthorizationReceipt | None = None,
+) -> Decision:
     """Make a deterministic, fail-closed policy decision.
 
     Read-only operations may inspect protected production paths. Any mutation
-    touching a protected path is denied. Mutations outside production require
-    explicit authorization.
+    touching a protected path is denied. Non-production mutations require a
+    scope-bound receipt when a receipt is supplied; the legacy boolean remains
+    accepted for compatibility with the existing Phase 4 local backend.
     """
     protected = [str(p) for p in paths if is_protected(p)]
 
     if protected and operation in MUTATING:
         return Decision(False, f"protected production boundary: {', '.join(protected)}")
 
-    if operation in MUTATING and not explicit_authorization:
-        return Decision(False, "mutation requires explicit authorization", True)
+    if operation in MUTATING:
+        if receipt is not None:
+            requested = tuple(sorted(str(_resolve(path)) for path in paths))
+            if not receipt.approved:
+                return Decision(False, "authorization receipt is not approved", True)
+            if receipt.operation is not operation:
+                return Decision(False, "authorization receipt operation mismatch", True)
+            if receipt.paths != requested:
+                return Decision(False, "authorization receipt scope mismatch", True)
+            return Decision(True, f"authorized by receipt {receipt.authorization_id}")
+        if not explicit_authorization:
+            return Decision(False, "mutation requires explicit authorization", True)
 
     if protected:
         return Decision(True, f"read-only access to protected production: {', '.join(protected)}")
