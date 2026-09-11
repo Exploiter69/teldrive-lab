@@ -71,6 +71,28 @@ def _archive_payload(plan) -> dict:
     }
 
 
+def _verification_payload(report) -> dict:
+    return {
+        "total": len(report.results),
+        "verified": report.verified,
+        "missing": report.missing,
+        "changed": report.changed,
+        "mismatched": report.mismatched,
+        "unverifiable": report.unverifiable,
+        "items": [
+            {
+                "path": item.path,
+                "expected_sha256": item.expected_sha256,
+                "actual_sha256": item.actual_sha256,
+                "expected_size": item.expected_size,
+                "actual_size": item.actual_size,
+                "state": item.state.value,
+            }
+            for item in report.results
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="td")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -159,11 +181,7 @@ def main() -> int:
             catalog = open_default_catalog()
             records = catalog.list_source(SourceType(args.source_type), args.source_id)
             report = verify_records(records)
-            payload = {
-                "total": len(report.results), "verified": report.verified, "missing": report.missing,
-                "changed": report.changed, "mismatched": report.mismatched, "unverifiable": report.unverifiable,
-                "items": [item.__dict__ for item in report.results],
-            }
+            payload = _verification_payload(report)
             record_event(audit, event_id=str(uuid.uuid4()), operation="verify",
                          decision="allowed", result="completed",
                          details={"total": len(report.results), "verified": report.verified,
