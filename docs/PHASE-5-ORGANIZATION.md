@@ -68,6 +68,8 @@ The basename is sanitized to a single filename component, preventing `..` traver
 
 The planner sorts records deterministically and emits a SHA-256 plan digest over canonical JSON. The same observations and policy therefore produce the same plan digest.
 
+Planning is deliberately distinct from authorization: a safe non-production `COPY` remains visible in a dry-run plan with an explicit-authorization note. Protected production mutations are `BLOCKED` at planning time.
+
 ### 3. Explicit plan actions
 
 Each item is classified as exactly one of:
@@ -108,7 +110,13 @@ The Phase 4 transfer layer remains responsible for:
 
 Phase 5 therefore does not duplicate transfer logic.
 
-### 6. CLI control surface
+### 6. Durable Job Engine integration
+
+`OrganizationJobExecutor` supports the existing Phase 3 `ORGANIZE` job type. A worker can therefore persist organization work, lease it, authorize it externally, execute it through Phase 4, retry classified transient/integrity failures, and recover from process interruption without inventing a second execution path.
+
+The worker still owns job lifecycle; the organization executor only owns the organization-specific side-effect adapter.
+
+### 7. CLI control surface
 
 The CLI now supports deterministic organization planning:
 
@@ -144,8 +152,8 @@ The default is fail-closed:
 ```text
 destination absent → COPY
 same source/destination → NOOP
- destination exists → CONFLICT
-protected/unsafe     → BLOCKED
+destination exists → CONFLICT
+protected/unsafe → BLOCKED
 ```
 
 There is no implicit overwrite, rename-on-conflict, duplicate deletion, or merge behavior.
@@ -179,12 +187,13 @@ Phase 5 is implementation-complete when all of the following are true:
 - [x] protected-path blocking exists
 - [x] explicit authorization is required for apply
 - [x] organization execution delegates to Phase 4 TransferManager
+- [x] durable `ORGANIZE` job executor exists
 - [x] SHA-256 transfer verification remains centralized in Phase 4
 - [x] audit integration exists through the CLI
 - [x] controlled host gate exists
-- [x] tests cover deterministic policy, conflicts, safety, and apply
+- [x] tests cover deterministic policy, conflicts, safety, apply, and durable jobs
 - [x] no live production organization was required
 
 ## What Phase 5 does not claim
 
-Phase 5 does not automatically reorganize the existing Telegram/TelDrive corpus. It provides the deterministic policy and execution boundary required for later phases. Live production validation remains a separate final program after the planned implementation phases are complete.
+Phase 5 does not automatically reorganize the existing Telegram/TelDrive corpus. It provides the deterministic policy, durable-job adapter, and execution boundary required for later phases. Live production validation remains a separate final program after the planned implementation phases are complete.
