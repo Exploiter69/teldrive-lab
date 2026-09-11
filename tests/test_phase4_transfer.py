@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from teldrive_lab.safety import AuthorizationReceipt, Operation
 from teldrive_lab.transfer import TransferManager, TransferSpec
 
 
@@ -18,18 +19,18 @@ def test_plan_is_read_only_and_reports_source(tmp_path: Path):
     assert not destination.exists()
 
 
-def test_lab_transfer_requires_and_accepts_explicit_authorization(tmp_path: Path):
+def test_lab_transfer_requires_and_accepts_scoped_authorization(tmp_path: Path):
     source = tmp_path / "source.txt"
     destination = tmp_path / "out" / "copy.txt"
     source.write_text("phase4")
+    spec = TransferSpec(str(source), str(destination))
 
-    denied = TransferManager().transfer(TransferSpec(str(source), str(destination)))
+    denied = TransferManager().transfer(spec)
     assert not denied.success
     assert "authorization" in (denied.error or "")
 
-    result = TransferManager().transfer(
-        TransferSpec(str(source), str(destination)), explicit_authorization=True
-    )
+    receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, str(source), str(destination))
+    result = TransferManager().transfer(spec, authorization=receipt)
 
     assert result.success
     assert result.verified
@@ -43,10 +44,10 @@ def test_existing_destination_is_not_overwritten(tmp_path: Path):
     destination = tmp_path / "copy.txt"
     source.write_text("new")
     destination.write_text("old")
+    spec = TransferSpec(str(source), str(destination))
+    receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, str(source), str(destination))
 
-    result = TransferManager().transfer(
-        TransferSpec(str(source), str(destination)), explicit_authorization=True
-    )
+    result = TransferManager().transfer(spec, authorization=receipt)
 
     assert not result.success
     assert "exists" in (result.error or "")
@@ -56,10 +57,12 @@ def test_existing_destination_is_not_overwritten(tmp_path: Path):
 def test_protected_production_destination_is_blocked_even_with_authorization(tmp_path: Path):
     source = tmp_path / "source.txt"
     source.write_text("must not reach production")
+    destination = "/home/thakuralok/TelegramRaw/phase4-test.txt"
+    receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, str(source), destination)
 
     result = TransferManager().transfer(
-        TransferSpec(str(source), "/home/thakuralok/TelegramRaw/phase4-test.txt"),
-        explicit_authorization=True,
+        TransferSpec(str(source), destination),
+        authorization=receipt,
     )
 
     assert not result.success
@@ -71,6 +74,7 @@ def test_denied_production_transfer_performs_no_filesystem_side_effects(tmp_path
     source = tmp_path / "source.txt"
     source.write_text("must not reach production")
     destination = "/home/thakuralok/TelegramRaw/phase4-test.txt"
+    receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, str(source), destination)
     mkdir_calls: list[object] = []
 
     original_mkdir = Path.mkdir
@@ -82,7 +86,8 @@ def test_denied_production_transfer_performs_no_filesystem_side_effects(tmp_path
     monkeypatch.setattr(Path, "mkdir", fail_if_mkdir_called)
 
     result = TransferManager().transfer(
-        TransferSpec(str(source), destination), explicit_authorization=True
+        TransferSpec(str(source), destination),
+        authorization=receipt,
     )
 
     assert not result.success
@@ -93,10 +98,12 @@ def test_denied_production_transfer_performs_no_filesystem_side_effects(tmp_path
 def test_checksum_helper_is_deterministic(tmp_path: Path):
     source = tmp_path / "source.bin"
     source.write_bytes(b"checksum")
+    destination = tmp_path / "copy.bin"
+    receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, str(source), str(destination))
     manager = TransferManager()
     result = manager.transfer(
-        TransferSpec(str(source), str(tmp_path / "copy.bin")),
-        explicit_authorization=True,
+        TransferSpec(str(source), str(destination)),
+        authorization=receipt,
     )
     assert result.verified
     assert result.source_sha256 == result.destination_sha256
