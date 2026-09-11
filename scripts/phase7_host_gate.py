@@ -14,7 +14,7 @@ from teldrive_lab.models import (
     SourceType,
     VerificationState,
 )
-from teldrive_lab.safety import Operation, authorize
+from teldrive_lab.safety import AuthorizationReceipt, Operation, authorize
 from teldrive_lab.transfer import sha256_file
 
 
@@ -61,8 +61,9 @@ def main() -> int:
         assert missing_report.missing == 1
         print("missing verified-copy detection: PASS")
 
-        production = authorize(Operation.DELETE, "/home/thakuralok/TelegramRaw/phase7-gate.txt",
-                               explicit_authorization=True)
+        production_path = "/home/thakuralok/TelegramRaw/phase7-gate.txt"
+        receipt = AuthorizationReceipt.for_paths(Operation.DELETE, production_path)
+        production = authorize(Operation.DELETE, production_path, receipt=receipt)
         assert not production.allowed
         print("destructive production operation remains blocked: PASS")
 
