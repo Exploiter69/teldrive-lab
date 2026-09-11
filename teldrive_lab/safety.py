@@ -75,15 +75,19 @@ def is_protected(path: str | Path) -> bool:
 def authorize(operation: Operation, *paths: str | Path, explicit_authorization: bool = False) -> Decision:
     """Make a deterministic, fail-closed policy decision.
 
-    Reads and non-mutating planning operations are allowed. Mutations require
-    explicit authorization, and mutations touching protected production paths
-    are denied by this foundation regardless of authorization.
+    Read-only operations may inspect protected production paths. Any mutation
+    touching a protected path is denied. Mutations outside production require
+    explicit authorization.
     """
     protected = [str(p) for p in paths if is_protected(p)]
-    if protected:
+
+    if protected and operation in MUTATING:
         return Decision(False, f"protected production boundary: {', '.join(protected)}")
 
     if operation in MUTATING and not explicit_authorization:
         return Decision(False, "mutation requires explicit authorization", True)
+
+    if protected:
+        return Decision(True, f"read-only access to protected production: {', '.join(protected)}")
 
     return Decision(True, "allowed")
