@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 
 from teldrive_lab.catalog import Catalog
 from teldrive_lab.indexer import IndexLimits, Indexer
@@ -70,11 +71,7 @@ def test_catalog_creates_schema_and_indexes(tmp_path):
 def test_upsert_is_deterministic_and_preserves_first_seen(tmp_path):
     catalog = Catalog(tmp_path / "catalog.db")
     first = make_record(seen="2026-09-01T00:00:00+00:00")
-    second = make_record(seen="2026-09-11T00:00:00+00:00")
-    second = FileRecord(**{**second.__dict__, "size": 99}) if hasattr(second, "__dict__") else FileRecord(
-        **{field: getattr(second, field) for field in second.__dataclass_fields__},
-        size=99,
-    )
+    second = replace(make_record(seen="2026-09-11T00:00:00+00:00"), size=99)
 
     stored_first = catalog.upsert(first)
     stored_second = catalog.upsert(second)
