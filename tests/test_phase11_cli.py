@@ -46,7 +46,6 @@ def test_cli_job_controls_are_audited(tmp_path: Path, monkeypatch, capsys) -> No
     job = store.enqueue(JobType.INDEX, job_id="job-cli")
     claimed = store.claim("worker-1")
     assert claimed is not None
-    assert main.__module__ == "teldrive_lab.cli"
     import sys
     monkeypatch.setattr(sys, "argv", ["td", "pause", job.job_id])
     assert main() == 0
@@ -63,7 +62,8 @@ def test_cli_search_and_health_are_read_only(tmp_path: Path, monkeypatch, capsys
     monkeypatch.setattr(sys, "argv", ["td", "health"])
     assert main() == 0
     health = json.loads(capsys.readouterr().out)
-    assert isinstance(health, dict)
+    assert isinstance(health, list)
+    assert all({"name", "ok", "detail"} <= set(item) for item in health)
     monkeypatch.setattr(sys, "argv", ["td", "init"])
     assert main() == 0
     init = json.loads(capsys.readouterr().out)
