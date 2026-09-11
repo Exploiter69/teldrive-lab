@@ -84,7 +84,10 @@ class OrganizationPolicy:
         normalized = record.path.replace("\\", "/").casefold().strip("/")
         segments = tuple(segment for segment in normalized.split("/") if segment)
         for rule in self.rules:
-            prefix_segments = tuple(segment for segment in rule.path_prefix.replace("\\", "/").casefold().strip("/").split("/") if segment)
+            prefix_segments = tuple(
+                segment for segment in rule.path_prefix.replace("\\", "/").casefold().strip("/").split("/")
+                if segment
+            )
             if prefix_segments and any(
                 segments[index:index + len(prefix_segments)] == prefix_segments
                 for index in range(len(segments) - len(prefix_segments) + 1)
@@ -175,12 +178,18 @@ class OrganizationPlanner:
                 reason = "destination already exists; planner will not overwrite"
             else:
                 decision = authorize(Operation.TRANSFER, source, destination)
-                if not decision.allowed:
-                    action = OrganizationAction.BLOCKED
-                    reason = decision.reason
-                else:
+                if decision.allowed:
                     action = OrganizationAction.COPY
                     reason = "deterministic policy match"
+                elif decision.requires_authorization:
+                    # Planning is not authorization. A safe non-production copy
+                    # remains a COPY item until the explicit apply step supplies
+                    # the exact scoped receipt.
+                    action = OrganizationAction.COPY
+                    reason = "deterministic policy match; explicit authorization required to apply"
+                else:
+                    action = OrganizationAction.BLOCKED
+                    reason = decision.reason
 
             items.append(OrganizationItem(
                 source=str(source), destination=str(destination), file_class=file_class,
