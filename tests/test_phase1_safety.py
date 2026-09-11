@@ -22,6 +22,12 @@ def test_lab_state_is_not_protected() -> None:
 def test_reads_are_allowed_on_production() -> None:
     decision = authorize(Operation.READ, "~/TelegramRaw")
     assert decision.allowed
+    assert not decision.requires_authorization
+
+
+def test_nonmutating_index_is_allowed_on_production() -> None:
+    decision = authorize(Operation.INDEX, "~/TelegramDrive")
+    assert decision.allowed
 
 
 def test_mutation_requires_explicit_authorization() -> None:
@@ -30,10 +36,17 @@ def test_mutation_requires_explicit_authorization() -> None:
     assert decision.requires_authorization
 
 
+def test_authorized_lab_mutation_is_allowed() -> None:
+    decision = authorize(Operation.WRITE, "/tmp/lab-file", explicit_authorization=True)
+    assert decision.allowed
+    assert not decision.requires_authorization
+
+
 def test_production_mutation_is_denied_even_when_authorized() -> None:
     decision = authorize(Operation.DELETE, "~/TelegramRaw/file.bin", explicit_authorization=True)
     assert not decision.allowed
     assert "protected production boundary" in decision.reason
+    assert not decision.requires_authorization
 
 
 def test_runtime_creation_is_lab_owned(tmp_path: Path) -> None:
