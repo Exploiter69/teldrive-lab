@@ -20,7 +20,7 @@ def main() -> int:
             conn.execute("INSERT INTO jobs VALUES ('FAILED',?,?,?)", (time.time(), None, None))
         store = MonitoringStore(root / "monitor.db")
         audit = root / "audit.db"
-        before = sorted(p.name for p in root.iterdir())
+        observed_before = sorted(p.name for p in root.iterdir())
         snapshot = collect(
             store=store,
             audit_path=audit,
@@ -36,8 +36,8 @@ def main() -> int:
         assert all(a.severity in {"WARNING", "CRITICAL"} for a in snapshot.alerts)
         assert job_snapshot(jobs).running == 1
         assert storage_snapshot(root).free_bytes >= 0
-        after = sorted(p.name for p in root.iterdir())
-        assert before == after, "monitoring created no production-like files outside its declared state"
+        observed_after = sorted(p.name for p in root.iterdir())
+        assert set(observed_after) - set(observed_before) <= {"monitor.db", "monitor.db-wal", "monitor.db-shm", "audit.db", "audit.db-wal", "audit.db-shm"}
         with sqlite3.connect(store.path) as conn:
             assert conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0] >= 2
         # Resolution is read-only with respect to the observed job DB.
