@@ -7,11 +7,9 @@ not execute storage work and does not grant authorization.
 from __future__ import annotations
 
 import hashlib
-import sqlite3
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .audit import open_audit, record_event
 from .jobs import Job, JobStore, JobType
@@ -90,6 +88,19 @@ class AuditedJobStore:
         self._audit(operation="JOB_COMPLETE", job=job, decision="ALLOW", result="COMPLETED")
         return job
 
+    def pause(self, job_id: str, worker_id: str | None = None) -> Job:
+        job = self.jobs.pause(job_id, worker_id)
+        self._audit(
+            operation="JOB_PAUSE", job=job, decision="ALLOW", result="PAUSED",
+            details={"worker_id": worker_id},
+        )
+        return job
+
+    def resume(self, job_id: str) -> Job:
+        job = self.jobs.resume(job_id)
+        self._audit(operation="JOB_RESUME", job=job, decision="ALLOW", result="QUEUED")
+        return job
+
     def cancel(self, job_id: str) -> Job:
         job = self.jobs.cancel(job_id)
         self._audit(operation="JOB_CANCEL", job=job, decision="ALLOW", result="CANCELLED")
@@ -111,7 +122,6 @@ class AuditedJobStore:
     def recover_expired_leases(self) -> int:
         count = self.jobs.recover_expired_leases()
         if count:
-            # Recovery is an operational event without a single job identity.
             conn = open_audit(self.audit_path)
             try:
                 record_event(
