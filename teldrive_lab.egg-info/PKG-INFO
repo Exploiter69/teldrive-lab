@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: teldrive-lab
+Version: 0.1.0
+Summary: Safe sidecar control plane for an existing TelDrive deployment
+Requires-Python: >=3.11

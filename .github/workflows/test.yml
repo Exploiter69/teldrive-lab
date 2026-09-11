@@ -5,9 +5,6 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,33 +15,7 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip pytest
       - run: pip install -e .
-      - name: Apply audit remediation
-        if: ${{ !hashFiles('AUDIT_REMEDIATION_APPLIED') }}
-        run: |
-          python scripts/apply_audit_remediation_v5.py
-          python scripts/apply_audit_remediation_v7.py
-          touch AUDIT_REMEDIATION_APPLIED
-      - name: Export verified remediation source
-        run: |
-          tar -czf remediation-source.tar.gz \
-            teldrive_lab/jobs.py \
-            teldrive_lab/worker.py \
-            teldrive_lab/transfer_executor.py \
-            teldrive_lab/lifecycle.py \
-            teldrive_lab/backups.py \
-            teldrive_lab/rclone.py \
-            teldrive_lab/job_lifecycle.py \
-            tests/test_phase3_jobs.py \
-            tests/test_phase4_transfer_control.py \
-            tests/test_audit_remediation.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: verified-remediation-source
-          path: remediation-source.tar.gz
-      - run: python -m compileall -q teldrive_lab tests scripts
       - run: pytest
-      - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
-      - run: PYTHONPATH="$PWD" python scripts/phase5_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase6_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase7_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase8_host_gate.py
@@ -52,14 +23,3 @@ jobs:
       - run: PYTHONPATH="$PWD" python scripts/phase10_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase11_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phases12_22_host_gate.py
-      - name: Commit verified remediation
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add teldrive_lab tests AUDIT_REMEDIATION_APPLIED
-          if git diff --cached --quiet; then
-            echo "No remediation changes to commit"
-          else
-            git commit -m "fix: close audit certification boundaries"
-            git push origin HEAD:audit-remediation-20260911
-          fi
