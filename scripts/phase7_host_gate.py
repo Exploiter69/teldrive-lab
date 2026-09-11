@@ -19,8 +19,9 @@ from teldrive_lab.transfer import sha256_file
 
 
 def record(path: Path, digest: str | None = None, verification=VerificationState.UNVERIFIED) -> FileRecord:
+    size = path.stat().st_size if path.exists() else 0
     return FileRecord(
-        path=str(path), name=path.name, parent_path=str(path.parent), size=path.stat().st_size,
+        path=str(path), name=path.name, parent_path=str(path.parent), size=size,
         mime_type="application/octet-stream", extension=path.suffix, created_at=None, modified_at=None,
         sha256=digest, hash_state=HashState.COMPUTED if digest else HashState.UNKNOWN,
         source_type=SourceType.LOCAL, source_identifier="phase7-host-gate", destination_type=DestinationType.LOCAL,
