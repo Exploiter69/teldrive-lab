@@ -14,7 +14,7 @@ from pathlib import Path
 from shutil import copy2
 from typing import Protocol
 
-from .safety import Operation, authorize
+from .safety import AuthorizationReceipt, Operation, authorize
 
 
 class TransferKind(str, Enum):
@@ -52,7 +52,13 @@ class TransferResult:
 
 
 class TransferBackend(Protocol):
-    def transfer(self, spec: TransferSpec, *, explicit_authorization: bool = False) -> TransferResult: ...
+    def transfer(
+        self,
+        spec: TransferSpec,
+        *,
+        explicit_authorization: bool = False,
+        authorization: AuthorizationReceipt | None = None,
+    ) -> TransferResult: ...
 
 
 def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
@@ -66,13 +72,20 @@ def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
 class LocalCopyBackend:
     """Local backend for Lab-owned transfers with post-copy verification."""
 
-    def transfer(self, spec: TransferSpec, *, explicit_authorization: bool = False) -> TransferResult:
+    def transfer(
+        self,
+        spec: TransferSpec,
+        *,
+        explicit_authorization: bool = False,
+        authorization: AuthorizationReceipt | None = None,
+    ) -> TransferResult:
         operation = Operation.OVERWRITE if spec.overwrite else Operation.TRANSFER
         decision = authorize(
             operation,
             spec.source,
             spec.destination,
             explicit_authorization=explicit_authorization,
+            receipt=authorization,
         )
         if not decision.allowed:
             return TransferResult(False, 0, spec.source, spec.destination, error=decision.reason)
@@ -122,7 +135,17 @@ class TransferManager:
             reason=decision.reason,
         )
 
-    def transfer(self, spec: TransferSpec, *, explicit_authorization: bool = False) -> TransferResult:
+    def transfer(
+        self,
+        spec: TransferSpec,
+        *,
+        explicit_authorization: bool = False,
+        authorization: AuthorizationReceipt | None = None,
+    ) -> TransferResult:
         if spec.kind is not TransferKind.COPY:
             return TransferResult(False, 0, spec.source, spec.destination, error="unsupported transfer kind")
-        return self.backend.transfer(spec, explicit_authorization=explicit_authorization)
+        return self.backend.transfer(
+            spec,
+            explicit_authorization=explicit_authorization,
+            authorization=authorization,
+        )
