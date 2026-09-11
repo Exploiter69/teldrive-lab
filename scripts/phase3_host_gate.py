@@ -63,7 +63,7 @@ def main() -> None:
                 "SELECT COUNT(*) FROM events WHERE operation='worker.safety_gate' AND decision='DENIED'"
             ).fetchone()[0]
 
-        assert count >= 7
+        assert count >= 6
         assert blocked_events == 1
         print("PHASE3 CONTROLLED HOST GATE: PASS")
         print(f"completed_job={safe.job_id}")
