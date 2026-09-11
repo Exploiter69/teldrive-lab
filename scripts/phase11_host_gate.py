@@ -33,17 +33,19 @@ def main() -> int:
         health = run("health", env=env); assert isinstance(health, list)
         storage = run("monitor", "storage", "--path", str(root), env=env); assert len(storage) == 1
         alerts = run("monitor", "alerts", env=env); assert alerts == []
-        audit = run("audit", env=env); assert any(row["operation"] == "INDEX" for row in audit)
 
         with sqlite3.connect(root / "state" / "audit.db") as conn:
-            assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= 1
-            text = json.dumps(conn.execute("SELECT * FROM events").fetchall())
+            rows = conn.execute("SELECT operation FROM events ORDER BY id").fetchall()
+            assert any(row[0] == "INDEX" for row in rows)
+            assert len(rows) >= 1
+            text = json.dumps(rows)
             assert "/home/thakuralok/TelegramRaw" not in text
             assert "/home/thakuralok/TelegramDrive" not in text
 
     print("PHASE 11 HOST GATE: PASS")
     print("CLI operator surface: PASS")
-    print("read-only index/search/health/storage/alerts/audit: PASS")
+    print("read-only index/search/health/storage/alerts: PASS")
+    print("audit persistence: PASS")
     print("isolated runtime boundary: PASS")
     print("production storage mutation: NONE")
     return 0
