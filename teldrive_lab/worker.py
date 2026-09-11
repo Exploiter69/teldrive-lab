@@ -7,6 +7,7 @@ policy has approved the job's operation and paths.
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -77,7 +78,7 @@ class Worker:
         self._audit("worker.safety_gate", job, "ALLOWED", "APPROVED",
                     details={"authorization_id": authorization.authorization_id if authorization else None})
         try:
-            result = self.executor.execute(job, authorization)
+            result = self._execute(job, authorization)
         except Exception as exc:
             result = ExecutionResult(ExecutionStatus.RETRYABLE,
                                      error_code="EXECUTOR_EXCEPTION",
@@ -126,6 +127,16 @@ class Worker:
             return failed
 
         raise RuntimeError(f"unsupported execution status: {result.status}")
+
+    def _execute(self, job: Job, authorization: AuthorizationReceipt | None) -> ExecutionResult:
+        """Call both modern and legacy executors without masking real failures."""
+        execute = self.executor.execute
+        try:
+            signature = inspect.signature(execute)
+            signature.bind(job, authorization)
+        except (TypeError, ValueError):
+            return execute(job)
+        return execute(job, authorization)
 
     @staticmethod
     def _operation_for(job: Job) -> Operation:
