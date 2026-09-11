@@ -8,12 +8,15 @@ layer never self-authorizes production changes.
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from shutil import copy2
-from typing import Protocol
+from shutil import copystat
+from typing import Callable, Protocol
 
+from .concurrency import TransferLimiter
 from .safety import AuthorizationReceipt, Operation, authorize
 
 
@@ -40,6 +43,14 @@ class TransferPlan:
 
 
 @dataclass(frozen=True)
+class TransferProgress:
+    source: str
+    destination: str
+    bytes_transferred: int
+    total_bytes: int
+
+
+@dataclass(frozen=True)
 class TransferResult:
     success: bool
     bytes_transferred: int
@@ -51,6 +62,9 @@ class TransferResult:
     error: str | None = None
 
 
+ProgressCallback = Callable[[TransferProgress], None]
+
+
 class TransferBackend(Protocol):
     def transfer(
         self,
@@ -58,6 +72,7 @@ class TransferBackend(Protocol):
         *,
         explicit_authorization: bool = False,
         authorization: AuthorizationReceipt | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> TransferResult: ...
 
 
@@ -70,7 +85,7 @@ def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
 
 
 class LocalCopyBackend:
-    """Local backend for Lab-owned transfers with post-copy verification."""
+    """Local backend using a temporary file plus post-copy SHA-256 verification."""
 
     def transfer(
         self,
@@ -78,6 +93,7 @@ class LocalCopyBackend:
         *,
         explicit_authorization: bool = False,
         authorization: AuthorizationReceipt | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> TransferResult:
         operation = Operation.OVERWRITE if spec.overwrite else Operation.TRANSFER
         decision = authorize(
@@ -97,25 +113,54 @@ class LocalCopyBackend:
         if destination.exists() and not spec.overwrite:
             return TransferResult(False, 0, spec.source, spec.destination, error="destination exists")
 
+        total = source.stat().st_size
         source_hash = sha256_file(source)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        copy2(source, destination)
-        destination_hash = sha256_file(destination)
-        verified = source_hash == destination_hash
-        if not verified:
+        temp_path: Path | None = None
+        copied = 0
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=destination.parent, prefix=".teldrive-lab-partial-", delete=False
+            ) as temporary:
+                temp_path = Path(temporary.name)
+                with source.open("rb") as source_handle:
+                    while chunk := source_handle.read(1024 * 1024):
+                        temporary.write(chunk)
+                        copied += len(chunk)
+                        if progress_callback is not None:
+                            progress_callback(TransferProgress(spec.source, spec.destination, copied, total))
+                temporary.flush()
+                os.fsync(temporary.fileno())
+
+            destination_hash = sha256_file(temp_path)
+            if source_hash != destination_hash:
+                return TransferResult(
+                    False, copied, spec.source, spec.destination,
+                    source_hash, destination_hash, False, "post-transfer checksum mismatch",
+                )
+            copystat(source, temp_path)
+            os.replace(temp_path, destination)
+            temp_path = None
             return TransferResult(
-                False, source.stat().st_size, spec.source, spec.destination,
-                source_hash, destination_hash, False, "post-transfer checksum mismatch",
+                True, copied, spec.source, spec.destination,
+                source_hash, destination_hash, True,
             )
-        return TransferResult(
-            True, source.stat().st_size, spec.source, spec.destination,
-            source_hash, destination_hash, True,
-        )
+        except OSError as exc:
+            return TransferResult(False, copied, spec.source, spec.destination,
+                                  source_hash, None, False, f"transfer I/O error: {exc}")
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
 
 class TransferManager:
-    def __init__(self, backend: TransferBackend | None = None) -> None:
+    def __init__(self, backend: TransferBackend | None = None,
+                 limiter: TransferLimiter | None = None) -> None:
         self.backend = backend or LocalCopyBackend()
+        self.limiter = limiter
 
     def plan(self, spec: TransferSpec) -> TransferPlan:
         source = Path(spec.source)
@@ -141,11 +186,27 @@ class TransferManager:
         *,
         explicit_authorization: bool = False,
         authorization: AuthorizationReceipt | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> TransferResult:
         if spec.kind is not TransferKind.COPY:
             return TransferResult(False, 0, spec.source, spec.destination, error="unsupported transfer kind")
-        return self.backend.transfer(
-            spec,
-            explicit_authorization=explicit_authorization,
-            authorization=authorization,
-        )
+        size = 0
+        source = Path(spec.source)
+        if source.is_file():
+            size = source.stat().st_size
+        if self.limiter is None:
+            return self.backend.transfer(
+                spec, explicit_authorization=explicit_authorization,
+                authorization=authorization, progress_callback=progress_callback,
+            )
+        try:
+            self.limiter.acquire(size)
+        except ValueError as exc:
+            return TransferResult(False, 0, spec.source, spec.destination, error=str(exc))
+        try:
+            return self.backend.transfer(
+                spec, explicit_authorization=explicit_authorization,
+                authorization=authorization, progress_callback=progress_callback,
+            )
+        finally:
+            self.limiter.release(size)
