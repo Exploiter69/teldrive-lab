@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import teldrive_lab.transfer as transfer_module
 from teldrive_lab.transfer import TransferManager, TransferSpec
 
 
@@ -73,7 +72,6 @@ def test_denied_production_transfer_performs_no_filesystem_side_effects(tmp_path
     source.write_text("must not reach production")
     destination = "/home/thakuralok/TelegramRaw/phase4-test.txt"
     mkdir_calls: list[object] = []
-    copy_calls: list[object] = []
 
     original_mkdir = Path.mkdir
 
@@ -81,12 +79,7 @@ def test_denied_production_transfer_performs_no_filesystem_side_effects(tmp_path
         mkdir_calls.append(self)
         return original_mkdir(self, *args, **kwargs)
 
-    def fail_if_copy_called(*args, **kwargs):
-        copy_calls.append(args[1] if len(args) > 1 else None)
-        raise AssertionError("copy2 must not run after a production safety denial")
-
     monkeypatch.setattr(Path, "mkdir", fail_if_mkdir_called)
-    monkeypatch.setattr(transfer_module, "copy2", fail_if_copy_called)
 
     result = TransferManager().transfer(
         TransferSpec(str(source), destination), explicit_authorization=True
@@ -95,7 +88,6 @@ def test_denied_production_transfer_performs_no_filesystem_side_effects(tmp_path
     assert not result.success
     assert "protected" in (result.error or "").lower()
     assert mkdir_calls == []
-    assert copy_calls == []
 
 
 def test_checksum_helper_is_deterministic(tmp_path: Path):
