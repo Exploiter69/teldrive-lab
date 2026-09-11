@@ -20,10 +20,12 @@ def runtime_paths(root: str | Path | None = None) -> RuntimePaths:
     base = Path(root).expanduser() if root else Path(
         os.environ.get("TELDRIVE_LAB_STATE", "~/.local/share/teldrive-lab")
     ).expanduser()
+    cache_env = os.environ.get("TELDRIVE_LAB_CACHE")
+    cache = Path(cache_env).expanduser() if cache_env else base / "cache"
     return RuntimePaths(
         root=base,
         state=base / "state",
-        cache=Path(os.environ.get("TELDRIVE_LAB_CACHE", "~/.cache/teldrive-lab")).expanduser(),
+        cache=cache,
         logs=base / "logs",
         backups=base / "backups",
     )
