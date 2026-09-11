@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from pathlib import Path
 from typing import Iterable
 
+from .audit import open_audit, record_event
 from .runtime import runtime_paths
 from .safety import AuthorizationReceipt, Operation, authorize
 from .transfer import TransferManager, TransferSpec
@@ -34,6 +36,11 @@ class RetentionPolicy:
     def __post_init__(self) -> None:
         if self.retention_seconds < 0 or self.safety_window_seconds < 0:
             raise ValueError("retention and safety windows must be non-negative")
+
+    @property
+    def effective_retention_seconds(self) -> int:
+        """Purge cannot become eligible before either protection interval expires."""
+        return max(self.retention_seconds, self.safety_window_seconds)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +89,19 @@ class LifecyclePlan:
     @property
     def blocked_count(self) -> int:
         return sum(item.action is LifecycleAction.PURGE_BLOCKED for item in self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleReconciliation:
+    source: str
+    quarantine: str
+    source_exists: bool
+    quarantine_exists: bool
+    size_matches: bool | None
+    sha256_matches: bool | None
+    locked: bool
+    state: str
+    reason: str
 
 
 class LifecycleStore:
@@ -179,7 +199,7 @@ class LifecyclePlanner:
                 continue
             size = target.stat().st_size
             digest = self._hash(target)
-            purge_after = now + timedelta(seconds=policy.safety_window_seconds)
+            purge_after = now + timedelta(seconds=policy.effective_retention_seconds)
             items.append(LifecyclePlanItem(str(target), str(destination), LifecycleAction.QUARANTINE,
                                            "explicit authorization required to quarantine; source remains intact",
                                            size, digest, purge_after.isoformat()))
@@ -195,9 +215,9 @@ class LifecyclePlanner:
             elif not quarantine.is_file():
                 action, reason = LifecycleAction.PURGE_BLOCKED, "quarantine copy is missing"
             elif datetime.fromisoformat(record.purge_after) > now:
-                action, reason = LifecycleAction.PURGE_BLOCKED, "safety window has not elapsed"
+                action, reason = LifecycleAction.PURGE_BLOCKED, "retention/safety window has not elapsed"
             else:
-                action, reason = LifecycleAction.PURGE_READY, "safety window elapsed"
+                action, reason = LifecycleAction.PURGE_READY, "retention and safety windows elapsed"
             items.append(LifecyclePlanItem(record.source, record.quarantine, action, reason,
                                            record.size, record.sha256, record.purge_after))
         return LifecyclePlan(tuple(items))
@@ -231,6 +251,34 @@ class LifecyclePlanner:
                                            record.size, record.sha256, record.purge_after, str(destination)))
         return LifecyclePlan(tuple(items))
 
+    def reconcile(self) -> tuple[LifecycleReconciliation, ...]:
+        """Read-only recovery view for interrupted or inconsistent lifecycle state."""
+        results: list[LifecycleReconciliation] = []
+        for record in self.store.all():
+            source = Path(record.source)
+            quarantine = Path(record.quarantine)
+            source_exists = source.is_file()
+            quarantine_exists = quarantine.is_file()
+            size_matches: bool | None = None
+            sha_matches: bool | None = None
+            if quarantine_exists:
+                size_matches = quarantine.stat().st_size == record.size
+                if size_matches:
+                    sha_matches = self._hash(quarantine) == record.sha256
+            if not quarantine_exists:
+                state, reason = "MISSING_QUARANTINE", "durable record exists but quarantine copy is missing"
+            elif not size_matches or not sha_matches:
+                state, reason = "CORRUPT_QUARANTINE", "quarantine evidence does not match durable checksum"
+            elif record.locked:
+                state, reason = "LOCKED_VERIFIED", "quarantine is verified and lifecycle-locked"
+            else:
+                state, reason = "VERIFIED", "quarantine is present and checksum verified"
+            results.append(LifecycleReconciliation(
+                record.source, record.quarantine, source_exists, quarantine_exists,
+                size_matches, sha_matches, record.locked, state, reason,
+            ))
+        return tuple(results)
+
 
 class LifecycleExecutor:
     """Apply only Lab-owned lifecycle actions after explicit authorization."""
@@ -238,6 +286,18 @@ class LifecycleExecutor:
     def __init__(self, store: LifecycleStore | None = None, transfer: TransferManager | None = None) -> None:
         self.store = store or LifecycleStore()
         self.transfer = transfer or TransferManager()
+
+    @staticmethod
+    def _audit(operation: str, *, source: str | None = None, destination: str | None = None,
+               decision: str = "ALLOW", result: str = "SUCCESS", error_code: str | None = None,
+               details: dict[str, object] | None = None) -> None:
+        conn = open_audit(runtime_paths().root / "audit.db")
+        try:
+            record_event(conn, event_id=str(uuid.uuid4()), operation=operation,
+                         decision=decision, result=result, source=source,
+                         destination=destination, error_code=error_code, details=details)
+        finally:
+            conn.close()
 
     def quarantine(self, plan: LifecyclePlan, *, authorization_id: str) -> tuple[bool, tuple[str, ...]]:
         results: list[str] = []
@@ -248,12 +308,16 @@ class LifecycleExecutor:
                                                      authorization_id=authorization_id)
             result = self.transfer.transfer(TransferSpec(item.source, item.quarantine), authorization=receipt)
             if not result.success or not result.verified:
+                self._audit("QUARANTINE", source=item.source, destination=item.quarantine,
+                             result="FAILED", error_code="QUARANTINE_VERIFY")
                 return False, tuple(results)
             record = LifecycleRecord(item.source, item.quarantine, item.size,
                                      item.sha256 or result.destination_sha256 or "",
                                      datetime.now(timezone.utc).isoformat(),
                                      item.purge_after or datetime.now(timezone.utc).isoformat())
             self.store.put(record)
+            self._audit("QUARANTINE", source=item.source, destination=item.quarantine,
+                         details={"sha256": record.sha256, "authorization_id": authorization_id})
             results.append(item.quarantine)
         return True, tuple(results)
 
@@ -266,8 +330,12 @@ class LifecycleExecutor:
             receipt = AuthorizationReceipt.for_paths(Operation.DELETE, path, authorization_id=authorization_id)
             decision = authorize(Operation.DELETE, path, receipt=receipt)
             if not decision.allowed:
+                self._audit("PURGE", source=item.source, destination=str(path), decision="DENY",
+                             result="BLOCKED", error_code="POLICY_DENIED")
                 return False, tuple(removed)
             path.unlink()
+            self._audit("PURGE", source=item.source, destination=str(path),
+                         details={"authorization_id": authorization_id})
             removed.append(str(path))
         return True, tuple(removed)
 
@@ -277,12 +345,17 @@ class LifecycleExecutor:
             if item.action is not LifecycleAction.RESTORE:
                 continue
             if not item.destination:
+                self._audit("RESTORE", source=item.quarantine, result="FAILED", error_code="MISSING_DESTINATION")
                 return False, tuple(restored)
             receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.quarantine, item.destination,
                                                      authorization_id=authorization_id)
             result = self.transfer.transfer(TransferSpec(item.quarantine, item.destination), authorization=receipt)
             if not result.success or not result.verified or result.destination_sha256 != item.sha256:
+                self._audit("RESTORE", source=item.quarantine, destination=item.destination,
+                             result="FAILED", error_code="RESTORE_VERIFY")
                 return False, tuple(restored)
+            self._audit("RESTORE", source=item.quarantine, destination=item.destination,
+                         details={"sha256": item.sha256, "authorization_id": authorization_id})
             restored.append(item.destination)
         return True, tuple(restored)
 
