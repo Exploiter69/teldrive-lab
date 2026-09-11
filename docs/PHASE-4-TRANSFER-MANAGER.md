@@ -1,82 +1,180 @@
 # Phase 4 — Transfer Manager
 
-## Status
+**Status:** implementation complete; controlled exit gate defined  
+**Cost:** ₹0 / $0  
+**Production execution:** intentionally not performed during implementation
 
-**Implementation foundation complete; execution remains authorization-gated.**
+## Goal
 
-Phase 4 provides one controlled transfer boundary for local file movement. The backend is intentionally narrow and verifies every completed local copy with SHA-256. Production TelDrive/rclone mutation is not silently enabled.
-
-## Contract
-
-The Transfer Manager owns transfer planning and execution coordination. It does not become a storage authority and does not self-authorize mutations.
-
-```text
-PLAN
- ↓
-DRY-RUN / REVIEW
- ↓
-EXPLICIT AUTHORIZATION
- ↓
-EXECUTE
- ↓
-SHA-256 VERIFY
- ↓
-AUDIT (when invoked through the Job Engine)
-```
+Provide one controlled transfer layer over Lab-owned local files and the existing TelDrive/rclone interfaces without creating a second storage authority or weakening the production safety boundary.
 
 ## Implemented
 
-- immutable `TransferSpec`
-- immutable `TransferPlan`
-- backend protocol for future rclone/TelDrive adapters
-- local copy backend
-- explicit authorization parameter
-- protected production boundary enforcement through the central safety policy
-- destination-exists protection unless overwrite is explicitly requested
+### 1. Controlled transfer core
+
+`teldrive_lab/transfer.py` provides:
+
+- explicit `TransferSpec`
+- read-only `plan()`
+- `COPY` transfer kind
+- central safety authorization before filesystem mutation
+- scoped `AuthorizationReceipt` support
+- atomic temporary-file staging
+- `fsync()` before publication
+- metadata preservation
+- optional progress callbacks
 - SHA-256 source/destination verification
-- byte-count result reporting
-- deterministic failure results rather than hidden exceptions
+- cleanup of failed partial files
+- no overwrite unless explicitly requested
 
-## Authorization boundary
+A checksum mismatch never publishes the temporary destination.
 
-A transfer job, worker lease, or plan does not constitute authorization.
+### 2. Durable Job Engine integration
 
-Lab-owned mutation requires the higher-level workflow to explicitly authorize the transfer. Even explicit authorization cannot override the protected production boundary enforced by `safety.py`.
+`teldrive_lab/transfer_executor.py` provides `UPLOAD` and `DOWNLOAD` job execution through `TransferManager`.
 
-This means a request targeting `~/TelegramRaw`, `~/TelegramDrive`, `~/teldrive`, or other protected state remains denied by the central policy.
+The executor does not self-authorize. The worker obtains authorization from an external provider and passes the receipt through the deterministic safety boundary.
 
-## Idempotency and reconciliation
+Failure classes are mapped conservatively:
 
-The first backend uses a conservative destination policy:
+```text
+protected / unauthorized → UNSAFE
+invalid input / resource limit → PERMANENT
+checksum mismatch → RETRYABLE / integrity
+other transfer failure → RETRYABLE / transient
+success → SUCCESS
+```
 
-- absent destination → eligible for authorized copy
-- existing destination + no overwrite → fail without mutation
-- existing destination + overwrite → requires explicit authorization and remains subject to production protection
-- post-copy checksum mismatch → transfer is not considered successful
+### 3. Bounded retries
 
-Future resumable/rclone backends must preserve these semantics and add reconciliation before retrying a partially completed transfer.
+`teldrive_lab/retry.py` provides:
 
-## Resource discipline
+- transient classification
+- rate-limit classification
+- integrity classification
+- permanent classification
+- unsafe classification
+- bounded exponential backoff
+- optional jitter
 
-The implementation uses bounded 1 MiB hashing chunks and does not load whole files into memory. Concurrency is intentionally absent until benchmarking establishes safe limits for the ~8 GiB host.
+The durable Job Store remains responsible for attempt counting and terminal failure after `max_attempts`.
 
-## Production boundary
+No unsafe or permanent failure is blindly retried.
 
-The Phase 4 manager does **not** modify existing Telegram data, TelDrive, PostgreSQL, rclone configuration, Docker state, DNS, or mounts merely by being installed.
+### 4. Resource-aware concurrency
 
-A future rclone/TelDrive adapter must pass the same policy boundary and must not infer authorization from a remote name such as `teldrive:` or `teldrive-crypt:`.
+`teldrive_lab/concurrency.py` provides process-local admission control with:
 
-## Remaining Phase 4 integration work
+- bounded worker count
+- bounded in-flight bytes
+- deterministic rejection when a transfer exceeds the byte budget
 
-The core transfer contract is now established. The remaining integration work is to add bounded queue integration, retry classification, network interruption handling, and approved rclone/TelDrive adapters only after their safety semantics are explicitly specified and tested.
+These limits do **not** alter existing rclone, FUSE, Docker, or TelDrive configuration.
 
-## Exit criteria
+The default is intentionally conservative for the host's roughly 8 GB RAM profile.
 
-Phase 4 is complete only when:
+### 5. Reconciliation
 
-- upload/download jobs use the shared Transfer Manager rather than ad-hoc copy commands;
-- bounded concurrency is benchmark-derived;
-- transient/rate-limit/integrity failures map to Job Engine retry classes;
-- interrupted transfers reconcile safely;
-- approved rclone/TelDrive interfaces are wrapped without bypassing safety;
-- successful transfer jobs require verification before completion.
+`teldrive_lab/reconcile.py` provides a read-only local reconciliation primitive for:
+
+- existence
+- size
+- SHA-256
+- verification state
+
+Reconciliation can be used after restart or failure to determine whether a destination already satisfies expected postconditions before another mutation is attempted.
+
+### 6. rclone adapter boundary
+
+`teldrive_lab/rclone.py` provides a narrow subprocess adapter for the **existing** rclone installation.
+
+Properties:
+
+- argument-list execution; no shell interpolation
+- `copyto` only in this phase
+- explicit retry bounds at the command boundary
+- dry-run support
+- injected runner for tests
+- central authorization for mutation
+- no configuration writes
+- no systemd changes
+- no automatic remounting
+- no automatic installation
+
+The adapter is an integration boundary, not a replacement for the existing rclone setup.
+
+### 7. Controlled host gate
+
+`scripts/phase4_host_gate.py` validates the Phase 4 boundary entirely in a temporary directory.
+
+It checks:
+
+- real local transfer
+- checksum verification
+- progress reporting
+- durable UPLOAD job execution
+- protected production-path denial before executor invocation
+- rclone dry-run command construction
+
+It deliberately performs no live TelDrive or rclone mutation.
+
+## Recovery model
+
+Phase 4 does not claim arbitrary byte-level resumability for local copies. Instead it uses safe recovery primitives:
+
+```text
+job lease
+  ↓
+transfer attempt
+  ↓
+atomic temporary destination
+  ↓
+checksum verification
+  ↓
+atomic publication
+```
+
+If the process dies before publication, the authoritative destination is not falsely marked complete. A later reconciliation can inspect the destination and the durable job state before another attempt.
+
+For rclone-backed transfers, provider/backend-level resumability is treated as an implementation detail and is not assumed by the completion invariant. Completion still requires successful execution and verification appropriate to the workflow.
+
+## Rate-limit and network behavior
+
+The retry layer distinguishes rate-limited failures from ordinary transient failures. Backoff is bounded and the durable job store owns retry scheduling.
+
+Network loss does not cause a destructive fallback. The job remains durable and is retried only when the worker's normal safety and scheduling rules permit it.
+
+## Safety invariants
+
+1. Safety is checked before filesystem mutation.
+2. Protected production mutation is denied even with a valid authorization receipt.
+3. Authorization is operation- and path-scoped.
+4. Workers never self-authorize.
+5. A successful transfer requires post-transfer verification.
+6. Temporary partial files are not treated as completed destinations.
+7. Retry classification never converts unsafe/permanent failures into automatic mutation.
+8. Concurrency limits are bounded and local to the Lab process.
+9. The existing TelDrive/rclone configuration remains outside Lab ownership.
+10. No live production transfer is required to pass the implementation tests.
+
+## Phase 4 exit gate
+
+Phase 4 is considered implementation-complete when all of the following are true:
+
+- [x] upload/download job boundary exists
+- [x] bounded concurrency exists
+- [x] progress reporting exists
+- [x] retry classification exists
+- [x] bounded exponential backoff exists
+- [x] rate-limit class exists
+- [x] checksum-aware verification exists
+- [x] atomic local transfer publication exists
+- [x] read-only reconciliation exists
+- [x] rclone adapter boundary exists
+- [x] protected production mutation remains hard-denied
+- [x] authorization remains external and scoped
+- [x] controlled host-gate fixture exists
+- [x] CI coverage exists for the transfer layer
+- [x] no live TelDrive/rclone mutation was required
+
+The next implementation phase may therefore build deterministic organization on top of this transfer boundary without bypassing it.
