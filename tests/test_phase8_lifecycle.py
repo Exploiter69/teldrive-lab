@@ -21,7 +21,7 @@ def test_quarantine_is_deterministic_and_preserves_source(tmp_path: Path) -> Non
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     plan = LifecyclePlanner(LifecycleStore(tmp_path / "lifecycle.db")).quarantine_plan(
         [source], quarantine_root=quarantine,
-        policy=RetentionPolicy(safety_window_seconds=60), now=now,
+        policy=RetentionPolicy(retention_seconds=60, safety_window_seconds=60), now=now,
     )
     assert plan.quarantine_count == 1
     item = plan.items[0]
@@ -74,7 +74,7 @@ def test_quarantine_restore_and_verification(tmp_path: Path, monkeypatch) -> Non
     executor = LifecycleExecutor(store)
 
     plan = planner.quarantine_plan([source], quarantine_root=quarantine,
-                                   policy=RetentionPolicy(safety_window_seconds=0))
+                                   policy=RetentionPolicy(safety_window_seconds=0, retention_seconds=0))
     ok, paths = executor.quarantine(plan, authorization_id="test-quarantine")
     assert ok and paths
     assert source.exists()
@@ -103,7 +103,7 @@ def test_purge_respects_safety_window_and_lock(tmp_path: Path) -> None:
     executor = LifecycleExecutor(store)
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     plan = planner.quarantine_plan([source], quarantine_root=quarantine,
-                                   policy=RetentionPolicy(safety_window_seconds=3600), now=now)
+                                   policy=RetentionPolicy(retention_seconds=3600, safety_window_seconds=3600), now=now)
     ok, _ = executor.quarantine(plan, authorization_id="test-quarantine")
     assert ok
 
