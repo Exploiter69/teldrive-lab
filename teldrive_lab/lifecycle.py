@@ -141,7 +141,7 @@ class LifecycleStore:
 
 
 class LifecyclePlanner:
-    """Build deterministic quarantine, purge and restore plans."""
+    """Build deterministic lifecycle plans; authorization is a later phase."""
 
     def __init__(self, store: LifecycleStore | None = None) -> None:
         self.store = store or LifecycleStore()
@@ -168,9 +168,9 @@ class LifecyclePlanner:
                 items.append(LifecyclePlanItem(str(target), str(destination), LifecycleAction.PURGE_BLOCKED,
                                                "source is not a regular file", 0, None, None))
                 continue
-            if not decision.allowed:
+            if not decision.allowed and not decision.requires_authorization:
                 items.append(LifecyclePlanItem(str(target), str(destination), LifecycleAction.PURGE_BLOCKED,
-                                               decision.reason or "protected or unauthorized", target.stat().st_size, None, None))
+                                               decision.reason or "protected production boundary", target.stat().st_size, None, None))
                 continue
             if destination.exists():
                 items.append(LifecyclePlanItem(str(target), str(destination), LifecycleAction.PURGE_BLOCKED,
@@ -180,8 +180,8 @@ class LifecyclePlanner:
             digest = self._hash(target)
             purge_after = now + timedelta(seconds=policy.safety_window_seconds)
             items.append(LifecyclePlanItem(str(target), str(destination), LifecycleAction.QUARANTINE,
-                                           "copy into Lab quarantine; source remains intact", size, digest,
-                                           purge_after.isoformat()))
+                                           "explicit authorization required to quarantine; source remains intact",
+                                           size, digest, purge_after.isoformat()))
         return LifecyclePlan(tuple(items))
 
     def purge_plan(self, *, now: datetime | None = None) -> LifecyclePlan:
@@ -218,12 +218,13 @@ class LifecyclePlanner:
                                                "restore destination exists; overwrite is forbidden", record.size, record.sha256, record.purge_after))
                 continue
             decision = authorize(Operation.TRANSFER, source, destination)
-            if not decision.allowed:
+            if not decision.allowed and not decision.requires_authorization:
                 items.append(LifecyclePlanItem(record.source, str(destination), LifecycleAction.PURGE_BLOCKED,
-                                               decision.reason or "protected or unauthorized", record.size, record.sha256, record.purge_after))
+                                               decision.reason or "protected production boundary", record.size, record.sha256, record.purge_after))
                 continue
             items.append(LifecyclePlanItem(record.source, str(destination), LifecycleAction.RESTORE,
-                                           "verified restore copy; quarantine retained", record.size, record.sha256, record.purge_after))
+                                           "explicit authorization required; verified restore copy; quarantine retained",
+                                           record.size, record.sha256, record.purge_after))
         return LifecyclePlan(tuple(items))
 
 
@@ -241,7 +242,7 @@ class LifecycleExecutor:
                 continue
             receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.source, item.quarantine,
                                                      authorization_id=authorization_id)
-            result = self.transfer.transfer(TransferSpec(item.source, item.quarantine), receipt=receipt)
+            result = self.transfer.transfer(TransferSpec(item.source, item.quarantine), authorization=receipt)
             if not result.success or not result.verified:
                 return False, tuple(results)
             record = LifecycleRecord(item.source, item.quarantine, item.size,
@@ -273,7 +274,7 @@ class LifecycleExecutor:
                 continue
             receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.quarantine, item.destination,
                                                      authorization_id=authorization_id)
-            result = self.transfer.transfer(TransferSpec(item.quarantine, item.destination), receipt=receipt)
+            result = self.transfer.transfer(TransferSpec(item.quarantine, item.destination), authorization=receipt)
             if not result.success or not result.verified or result.destination_sha256 != item.sha256:
                 return False, tuple(restored)
             restored.append(item.destination)
