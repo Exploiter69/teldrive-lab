@@ -64,6 +64,7 @@ def test_protected_source_is_blocked(tmp_path: Path) -> None:
 
 
 def test_quarantine_restore_and_verification(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("TELDRIVE_LAB_STATE", str(tmp_path / "runtime"))
     source = tmp_path / "source.txt"
     quarantine = tmp_path / "quarantine"
     restore = tmp_path / "restore"
@@ -71,7 +72,6 @@ def test_quarantine_restore_and_verification(tmp_path: Path, monkeypatch) -> Non
     store = LifecycleStore(tmp_path / "lifecycle.db")
     planner = LifecyclePlanner(store)
     executor = LifecycleExecutor(store)
-    monkeypatch.setenv("TELDRIVE_LAB_RUNTIME", str(tmp_path / "runtime"))
 
     plan = planner.quarantine_plan([source], quarantine_root=quarantine,
                                    policy=RetentionPolicy(safety_window_seconds=0))
@@ -118,13 +118,13 @@ def test_purge_respects_safety_window_and_lock(tmp_path: Path) -> None:
 
 
 def test_expired_unlocked_quarantine_can_be_explicitly_purged(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("TELDRIVE_LAB_STATE", str(tmp_path / "runtime"))
     source = tmp_path / "source.txt"
     quarantine = tmp_path / "quarantine"
     source.write_text("purge me")
     store = LifecycleStore(tmp_path / "lifecycle.db")
     planner = LifecyclePlanner(store)
     executor = LifecycleExecutor(store)
-    monkeypatch.setenv("TELDRIVE_LAB_RUNTIME", str(tmp_path / "runtime"))
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     plan = planner.quarantine_plan([source], quarantine_root=quarantine,
                                    policy=RetentionPolicy(safety_window_seconds=1, retention_seconds=1), now=now)
