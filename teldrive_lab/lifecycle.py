@@ -327,9 +327,20 @@ class LifecycleExecutor:
             if item.action is not LifecycleAction.PURGE_READY:
                 continue
             path = Path(item.quarantine).resolve()
+            current = self.store.get(item.source)
+            now = datetime.now(timezone.utc)
+            if (current is None or current.locked or Path(current.quarantine).resolve() != path
+                    or current.sha256 != item.sha256 or current.size != item.size
+                    or datetime.fromisoformat(current.purge_after) > now
+                    or not path.is_file()):
+                self._audit("PURGE", source=item.source, destination=str(path), decision="DENY",
+                             result="BLOCKED", error_code="STALE_PURGE_PLAN")
+                return False, tuple(removed)
+            self.store.set_locked(item.source, True)
             receipt = AuthorizationReceipt.for_paths(Operation.DELETE, path, authorization_id=authorization_id)
             decision = authorize(Operation.DELETE, path, receipt=receipt)
             if not decision.allowed:
+                self.store.set_locked(item.source, False)
                 self._audit("PURGE", source=item.source, destination=str(path), decision="DENY",
                              result="BLOCKED", error_code="POLICY_DENIED")
                 return False, tuple(removed)

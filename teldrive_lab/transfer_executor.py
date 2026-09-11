@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .jobs import Job, JobType
 from .retry import RetryPolicy, classify_transfer_error, RetryClass
 from .safety import AuthorizationReceipt, Operation
-from .transfer import TransferManager, TransferSpec
+from .transfer import TransferManager, TransferSpec, sha256_file
 from .worker import ExecutionResult, ExecutionStatus
 
 
@@ -58,3 +60,20 @@ class TransferJobExecutor:
             delay = self.retry_policy.delay(max(1, job.attempts + 1), random_value=0.5)
             return ExecutionResult(ExecutionStatus.RETRYABLE, code, error, delay)
         return ExecutionResult(ExecutionStatus.PERMANENT, code, error)
+
+    def reconcile(self, job: Job):
+        from .job_lifecycle import reconcile
+        if not job.destination:
+            return type("RecoveryDecision", (), {"action": "FAIL", "reason": "recovery cannot identify transfer destination"})()
+        destination = Path(job.destination)
+        if not destination.is_file():
+            return type("RecoveryDecision", (), {"action": "REQUEUE", "reason": "no completed destination observed"})()
+        intended = job.checksum
+        if intended is None and job.source and Path(job.source).is_file():
+            intended = sha256_file(Path(job.source))
+        if intended is None:
+            return type("RecoveryDecision", (), {"action": "FAIL", "reason": "existing destination cannot be safely identified"})()
+        observed = sha256_file(destination)
+        result = reconcile(intended_checksum=intended, observed_checksum=observed, observed_exists=True)
+        action = "COMPLETE" if result.reason == "matching checksum already observed" else ("REQUEUE" if result.safe_to_execute else "FAIL")
+        return type("RecoveryDecision", (), {"action": action, "reason": result.reason})()

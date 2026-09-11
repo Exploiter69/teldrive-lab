@@ -140,15 +140,32 @@ class Worker:
 
     @staticmethod
     def _operation_for(job: Job) -> Operation:
-        if job.type.value == "INDEX":
-            return Operation.INDEX
-        if job.type.value == "VERIFY":
-            return Operation.VERIFY
-        return Operation.TRANSFER
+        mapping = {
+            "INDEX": Operation.INDEX, "VERIFY": Operation.VERIFY,
+            "UPLOAD": Operation.TRANSFER, "DOWNLOAD": Operation.TRANSFER,
+            "ARCHIVE": Operation.TRANSFER, "BACKUP": Operation.TRANSFER,
+            "SNAPSHOT": Operation.TRANSFER, "ORGANIZE": Operation.TRANSFER,
+            "CLEANUP": Operation.DELETE, "RESTORE": Operation.TRANSFER,
+        }
+        try:
+            return mapping[job.type.value]
+        except KeyError as exc:
+            raise ValueError(f"unsupported job type: {job.type.value}") from exc
 
     def _safety_decision(self, job: Job, authorization: AuthorizationReceipt | None = None):
         paths = [p for p in (job.source, job.destination, job.path) if p]
-        return authorize(self._operation_for(job), *paths, receipt=authorization)
+        try:
+            operation = self._operation_for(job)
+        except ValueError as exc:
+            from .safety import Decision
+            return Decision(False, str(exc))
+        return authorize(operation, *paths, receipt=authorization)
+
+    def recover_expired_leases(self) -> int:
+        reconciler = getattr(self.executor, "reconcile", None)
+        if not callable(reconciler):
+            return 0
+        return self.store.recover_expired_leases(reconciler=reconciler)
 
     def _audit(self, operation: str, job: Job, decision: str, result: str, *,
                error_code: str | None = None, details: dict | None = None) -> None:

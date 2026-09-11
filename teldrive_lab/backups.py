@@ -17,6 +17,24 @@ from .safety import AuthorizationReceipt, Operation, authorize
 from .transfer import TransferManager, TransferSpec
 
 SCHEMA_VERSION = 2
+BACKUP_METADATA_ROOT_NAME = "backup-manifests"
+
+
+def backup_metadata_root() -> Path:
+    root = (runtime_paths().root / BACKUP_METADATA_ROOT_NAME).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _owned_manifest_path(path: str | Path) -> Path | None:
+    candidate = Path(path).resolve()
+    root = backup_metadata_root()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
 
 
 class BackupState:
@@ -165,7 +183,7 @@ class BackupPlanner:
             if not decision.allowed and not decision.requires_authorization: raise PermissionError(decision.reason or "protected boundary")
             if destination.exists(): raise FileExistsError(destination)
             items.append(BackupItem(str(source), str(destination), source.stat().st_size, self._hash(source)))
-        created = now.isoformat(); purge_after = (now + timedelta(seconds=policy.effective_retention_seconds)).isoformat(); manifest = str((root / "manifests" / f"{now.strftime('%Y%m%dT%H%M%SZ')}.json").resolve())
+        created = now.isoformat(); purge_after = (now + timedelta(seconds=policy.effective_retention_seconds)).isoformat(); manifest = str((backup_metadata_root() / f"{now.strftime('%Y%m%dT%H%M%SZ')}.json").resolve())
         return BackupPlan(tuple(items), manifest, created, purge_after)
 
     @staticmethod
@@ -185,12 +203,18 @@ class BackupExecutor:
         finally: conn.close()
 
     def apply(self, plan: BackupPlan, *, authorization_id: str) -> tuple[bool, tuple[str, ...]]:
+        manifest = _owned_manifest_path(plan.manifest_path)
+        if manifest is None:
+            self._audit("BACKUP", decision="DENY", result="BLOCKED", error_code="MANIFEST_OUTSIDE_LAB_ROOT")
+            return False, ()
         changed = []
         for item in plan.items:
             receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.source, item.destination, authorization_id=authorization_id); result = self.transfer.transfer(TransferSpec(item.source, item.destination), authorization=receipt)
             if not result.success or not result.verified or result.destination_sha256 != item.sha256: self._audit("BACKUP", source=item.source, destination=item.destination, decision="ALLOW", result="FAILED", error_code="BACKUP_VERIFY"); return False, tuple(changed)
             changed.append(item.destination)
-        manifest = Path(plan.manifest_path); manifest.parent.mkdir(parents=True, exist_ok=True); manifest.write_text(BackupPlanner.manifest(plan), encoding="utf-8"); self.store.put(plan)
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(BackupPlanner.manifest(plan), encoding="utf-8")
+        self.store.put(plan)
         self._audit("BACKUP", decision="ALLOW", result="SUCCESS", details={"digest": plan.digest, "items": len(plan.items), "authorization_id": authorization_id}); return True, tuple(changed)
 
     def verify(self, plan: BackupPlan) -> tuple[BackupVerification, ...]:
@@ -224,14 +248,25 @@ class BackupExecutor:
         now = now or datetime.now(timezone.utc); return tuple(p for p in self.store.plans() if datetime.fromisoformat(p.purge_after) <= now and not self.store.is_locked(p.digest))
 
     def purge(self, plan: BackupPlan, *, authorization_id: str) -> tuple[bool, tuple[str, ...]]:
-        if self.store.is_locked(plan.digest) or datetime.fromisoformat(plan.purge_after) > datetime.now(timezone.utc): return False, ()
+        now = datetime.now(timezone.utc)
+        manifest = _owned_manifest_path(plan.manifest_path)
+        if manifest is None or self.store.is_locked(plan.digest) or datetime.fromisoformat(plan.purge_after) > now:
+            return False, ()
+        current = {p.digest: p for p in self.store.plans()}.get(plan.digest)
+        if current is None or current.manifest_path != plan.manifest_path or current.purge_after != plan.purge_after:
+            return False, ()
+        self.store.lock(plan.digest)
         removed = []
         for item in plan.items:
             path = Path(item.destination).resolve(); receipt = AuthorizationReceipt.for_paths(Operation.DELETE, path, authorization_id=authorization_id); decision = authorize(Operation.DELETE, path, receipt=receipt)
             if not decision.allowed: return False, tuple(removed)
             if path.exists(): path.unlink(); removed.append(str(path))
-        manifest = Path(plan.manifest_path)
-        if manifest.exists(): manifest.unlink()
+        if manifest.exists():
+            receipt = AuthorizationReceipt.for_paths(Operation.DELETE, manifest, authorization_id=authorization_id)
+            decision = authorize(Operation.DELETE, manifest, receipt=receipt)
+            if not decision.allowed:
+                return False, tuple(removed)
+            manifest.unlink()
         self._audit("BACKUP_PURGE", decision="ALLOW", result="SUCCESS", details={"digest": plan.digest, "authorization_id": authorization_id}); return True, tuple(removed)
 
 
