@@ -81,10 +81,14 @@ class OrganizationPolicy:
     )
 
     def classify(self, record: FileRecord) -> tuple[FileClass, StorageClass, str]:
-        normalized = record.path.replace("\\", "/").lstrip("/").casefold()
+        normalized = record.path.replace("\\", "/").casefold().strip("/")
+        segments = tuple(segment for segment in normalized.split("/") if segment)
         for rule in self.rules:
-            prefix = rule.path_prefix.casefold().strip("/") + "/"
-            if normalized.startswith(prefix):
+            prefix_segments = tuple(segment for segment in rule.path_prefix.replace("\\", "/").casefold().strip("/").split("/") if segment)
+            if prefix_segments and any(
+                segments[index:index + len(prefix_segments)] == prefix_segments
+                for index in range(len(segments) - len(prefix_segments) + 1)
+            ):
                 return rule.file_class, rule.storage_class, rule.rule_id
 
         extension = (record.extension or Path(record.name).suffix).casefold()
