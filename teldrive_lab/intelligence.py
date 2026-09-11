@@ -87,9 +87,11 @@ def search_metadata(
     max_size: int | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Lexical retrieval with metadata filters and deterministic scoring."""
+    """Lexical retrieval with metadata filters and deterministic field-aware scoring."""
     q = _tokens(query)
     results: list[SearchResult] = []
+    stopwords = {"a", "an", "and", "find", "for", "in", "of", "the", "to", "with"}
+    q = [token for token in q if token not in stopwords]
     for record in index.get("records", []):
         ext = str(record.get("extension", "")).casefold()
         size = int(record.get("size", 0) or 0)
@@ -101,21 +103,36 @@ def search_metadata(
             continue
         fields = _field_text(record).casefold()
         tokens = _tokens(fields)
+        name = str(record.get("name", "")).casefold()
+        path = str(record.get("path", "")).casefold()
+        title = str(record.get("title", "")).casefold()
+        text = str(record.get("text", "")).casefold()
+        ocr_text = str(record.get("ocr_text", "")).casefold()
+        transcript = str(record.get("transcript", "")).casefold()
         score = 0.0
         reasons: list[str] = []
         for token in q:
             if token in tokens:
                 score += 1.0
                 reasons.append(f"token:{token}")
-            if token in str(record.get("name", "")).casefold():
+            if token in name:
                 score += 2.0
                 reasons.append(f"name:{token}")
-            if token in str(record.get("path", "")).casefold():
+            if token in path:
                 score += 1.0
                 reasons.append(f"path:{token}")
-            if token in str(record.get("text", "")).casefold() or token in str(record.get("ocr_text", "")).casefold() or token in str(record.get("transcript", "")).casefold():
+            if token in title:
+                score += 3.0
+                reasons.append(f"title:{token}")
+            if token in text or token in ocr_text or token in transcript:
                 score += 1.5
                 reasons.append(f"content:{token}")
+        if q and all(token in title for token in q):
+            score += 4.0
+            reasons.append("exact_title_phrase")
+        if q and all(token in name for token in q):
+            score += 3.0
+            reasons.append("exact_name_phrase")
         if not q:
             score = 1.0
         if score > 0:
