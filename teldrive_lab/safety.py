@@ -36,19 +36,21 @@ MUTATING = frozenset({
     Operation.RECONFIGURE,
 })
 
-# Exact production roots from PRODUCTION_BOUNDARY.md. These are intentionally
-# explicit rather than inferred from the current machine at runtime.
-PROTECTED_ROOTS = tuple(Path(p).expanduser() for p in (
-    "~/TelegramRaw",
-    "~/TelegramDrive",
-    "~/teldrive",
-    "~/teldrive-project",
-))
+# TelDrive production paths are fixed host paths, not paths relative to the
+# process user's HOME. This keeps the safety boundary identical in production,
+# CI, containers, and test environments.
+PRODUCTION_HOME = Path("/home/thakuralok")
+PROTECTED_ROOTS = (
+    PRODUCTION_HOME / "TelegramRaw",
+    PRODUCTION_HOME / "TelegramDrive",
+    PRODUCTION_HOME / "teldrive",
+    PRODUCTION_HOME / "teldrive-project",
+)
 
-PROTECTED_STATE = tuple(Path(p).expanduser() for p in (
-    "~/teldrive/session.db",
-    "/run/docker.sock",
-))
+PROTECTED_STATE = (
+    PRODUCTION_HOME / "teldrive" / "session.db",
+    Path("/run/docker.sock"),
+)
 
 
 @dataclass(frozen=True)
@@ -59,7 +61,11 @@ class Decision:
 
 
 def _resolve(path: str | Path) -> Path:
-    return Path(path).expanduser().resolve(strict=False)
+    """Normalize a path without depending on the executing user's HOME."""
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    return candidate.resolve(strict=False)
 
 
 def is_protected(path: str | Path) -> bool:
