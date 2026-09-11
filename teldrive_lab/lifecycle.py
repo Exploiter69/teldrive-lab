@@ -56,6 +56,7 @@ class LifecyclePlanItem:
     size: int
     sha256: str | None
     purge_after: str | None
+    destination: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +66,7 @@ class LifecyclePlan:
     @property
     def digest(self) -> str:
         payload = "\n".join(
-            f"{item.source}|{item.quarantine}|{item.action.value}|{item.size}|{item.sha256 or ''}|{item.purge_after or ''}"
+            f"{item.source}|{item.quarantine}|{item.destination or ''}|{item.action.value}|{item.size}|{item.sha256 or ''}|{item.purge_after or ''}"
             for item in self.items
         )
         return hashlib.sha256(payload.encode()).hexdigest()
@@ -210,21 +211,24 @@ class LifecyclePlanner:
             source = Path(record.quarantine)
             destination = (Path(destination_root) / Path(record.source).name).resolve()
             if not source.is_file():
-                items.append(LifecyclePlanItem(record.source, str(destination), LifecycleAction.PURGE_BLOCKED,
-                                               "quarantine copy is missing", record.size, record.sha256, record.purge_after))
+                items.append(LifecyclePlanItem(record.source, record.quarantine, LifecycleAction.PURGE_BLOCKED,
+                                               "quarantine copy is missing", record.size, record.sha256, record.purge_after,
+                                               str(destination)))
                 continue
             if destination.exists():
-                items.append(LifecyclePlanItem(record.source, str(destination), LifecycleAction.PURGE_BLOCKED,
-                                               "restore destination exists; overwrite is forbidden", record.size, record.sha256, record.purge_after))
+                items.append(LifecyclePlanItem(record.source, record.quarantine, LifecycleAction.PURGE_BLOCKED,
+                                               "restore destination exists; overwrite is forbidden", record.size, record.sha256, record.purge_after,
+                                               str(destination)))
                 continue
             decision = authorize(Operation.TRANSFER, source, destination)
             if not decision.allowed and not decision.requires_authorization:
-                items.append(LifecyclePlanItem(record.source, str(destination), LifecycleAction.PURGE_BLOCKED,
-                                               decision.reason or "protected production boundary", record.size, record.sha256, record.purge_after))
+                items.append(LifecyclePlanItem(record.source, record.quarantine, LifecycleAction.PURGE_BLOCKED,
+                                               decision.reason or "protected production boundary", record.size, record.sha256, record.purge_after,
+                                               str(destination)))
                 continue
-            items.append(LifecyclePlanItem(record.source, str(destination), LifecycleAction.RESTORE,
+            items.append(LifecyclePlanItem(record.source, record.quarantine, LifecycleAction.RESTORE,
                                            "explicit authorization required; verified restore copy; quarantine retained",
-                                           record.size, record.sha256, record.purge_after))
+                                           record.size, record.sha256, record.purge_after, str(destination)))
         return LifecyclePlan(tuple(items))
 
 
@@ -272,6 +276,8 @@ class LifecycleExecutor:
         for item in plan.items:
             if item.action is not LifecycleAction.RESTORE:
                 continue
+            if not item.destination:
+                return False, tuple(restored)
             receipt = AuthorizationReceipt.for_paths(Operation.TRANSFER, item.quarantine, item.destination,
                                                      authorization_id=authorization_id)
             result = self.transfer.transfer(TransferSpec(item.quarantine, item.destination), authorization=receipt)
