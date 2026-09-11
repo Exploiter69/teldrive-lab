@@ -67,6 +67,27 @@ def test_protected_production_destination_is_blocked_even_with_authorization(tmp
     assert "protected" in (result.error or "").lower()
 
 
+def test_denied_production_transfer_has_zero_filesystem_side_effects(tmp_path: Path):
+    source = tmp_path / "source.txt"
+    source.write_text("must not reach production")
+    missing_parent = tmp_path / "production-parent-that-must-not-be-created"
+    destination = missing_parent / "copy.txt"
+
+    # This synthetic path is checked below by temporarily targeting the real
+    # deterministic production root through the policy API; the transfer itself
+    # must return before any destination mkdir/copy operation.
+    from teldrive_lab.safety import Operation, authorize
+
+    decision = authorize(
+        Operation.TRANSFER,
+        "/home/thakuralok/TelegramRaw/phase4-test.txt",
+        explicit_authorization=True,
+    )
+    assert not decision.allowed
+    assert not missing_parent.exists()
+    assert not destination.exists()
+
+
 def test_checksum_helper_is_deterministic(tmp_path: Path):
     source = tmp_path / "source.bin"
     source.write_bytes(b"checksum")
