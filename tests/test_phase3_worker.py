@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 from teldrive_lab.audit import open_audit
@@ -13,7 +12,7 @@ class FakeExecutor:
         self.result = result
         self.calls = []
 
-    def execute(self, job):
+    def execute(self, job, authorization=None):
         self.calls.append(job)
         return self.result
 
@@ -111,7 +110,7 @@ def test_executor_exception_is_retryable(tmp_path: Path):
         def __init__(self):
             self.calls = 0
 
-        def execute(self, job):
+        def execute(self, job, authorization=None):
             self.calls += 1
             raise RuntimeError("boom")
 
@@ -141,8 +140,6 @@ def test_worker_with_no_jobs_is_noop(tmp_path: Path):
 def test_worker_never_self_authorizes_lab_mutation(tmp_path: Path):
     store = JobStore(tmp_path / "jobs.db")
     executor = FakeExecutor(ExecutionResult(ExecutionStatus.SUCCESS))
-    # A non-production transfer requires explicit authorization, which Worker
-    # deliberately never supplies.
     store.enqueue(JobType.UPLOAD, source=str(tmp_path / "input"),
                   destination=str(tmp_path / "output"))
 
