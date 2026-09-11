@@ -1,8 +1,8 @@
 """Controlled transfer layer for TelDrive Lab.
 
 Transfers are planned separately from execution. Actual mutation requires an
-explicit authorization supplied by a higher-level workflow; the transfer
-layer never self-authorizes production changes.
+explicit scope-bound authorization receipt supplied by a higher-level workflow;
+the transfer layer never self-authorizes production changes.
 """
 
 from __future__ import annotations
@@ -70,7 +70,6 @@ class TransferBackend(Protocol):
         self,
         spec: TransferSpec,
         *,
-        explicit_authorization: bool = False,
         authorization: AuthorizationReceipt | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> TransferResult: ...
@@ -91,7 +90,6 @@ class LocalCopyBackend:
         self,
         spec: TransferSpec,
         *,
-        explicit_authorization: bool = False,
         authorization: AuthorizationReceipt | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> TransferResult:
@@ -100,7 +98,6 @@ class LocalCopyBackend:
             operation,
             spec.source,
             spec.destination,
-            explicit_authorization=explicit_authorization,
             receipt=authorization,
         )
         if not decision.allowed:
@@ -169,7 +166,6 @@ class TransferManager:
             Operation.OVERWRITE if spec.overwrite else Operation.TRANSFER,
             spec.source,
             spec.destination,
-            explicit_authorization=False,
         )
         return TransferPlan(
             spec=spec,
@@ -184,7 +180,6 @@ class TransferManager:
         self,
         spec: TransferSpec,
         *,
-        explicit_authorization: bool = False,
         authorization: AuthorizationReceipt | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> TransferResult:
@@ -196,8 +191,7 @@ class TransferManager:
             size = source.stat().st_size
         if self.limiter is None:
             return self.backend.transfer(
-                spec, explicit_authorization=explicit_authorization,
-                authorization=authorization, progress_callback=progress_callback,
+                spec, authorization=authorization, progress_callback=progress_callback,
             )
         try:
             self.limiter.acquire(size)
@@ -205,8 +199,7 @@ class TransferManager:
             return TransferResult(False, 0, spec.source, spec.destination, error=str(exc))
         try:
             return self.backend.transfer(
-                spec, explicit_authorization=explicit_authorization,
-                authorization=authorization, progress_callback=progress_callback,
+                spec, authorization=authorization, progress_callback=progress_callback,
             )
         finally:
             self.limiter.release(size)
