@@ -80,6 +80,7 @@ def wait_for_jellyfin(base_url,timeout=90):
   time.sleep(1)
  raise R3Error("Jellyfin did not become ready")
 def configure_jellyfin(base_url,username="r3-admin",password="R3-Gate-2026-Disposable-Strong-Password-9X"):
+ _request(base_url,"/Startup/User")
  for path,payload in [("/Startup/Configuration",{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}),("/Startup/User",{"Name":username,"Password":password}),("/Startup/RemoteAccess",{"EnableRemoteAccess":False,"EnableAutomaticPortMapping":False}),("/Startup/Complete",{})]:
   try:_request(base_url,path,method="POST",payload=payload)
   except R3Error as exc:
