@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -81,13 +80,12 @@ def test_discovery_is_bounded_and_reports_stale_without_deleting(tmp_path: Path)
     assert bounded.bounded is True
 
 
-def test_remote_validation_and_command_are_read_only(tmp_path: Path) -> None:
+def test_remote_validation_and_failure_boundary(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         RcloneTelDriveSource("not-a-remote")
 
     fake = tmp_path / "rclone"
-    _fake_rclone(fake, [])
+    _fake_rclone(fake, [], exit_code=7)
     catalog = Catalog(tmp_path / "catalog.db")
-    result = discover_teldrive(catalog, remote="teldrive:", executable=str(fake))
-    assert result.discovered == 0
-    assert os.environ.get("TELDRIVE_LAB_TELDRIVE_RCLONE_REMOTE") is None or True
+    with pytest.raises(Exception, match="rclone exited with status 7"):
+        discover_teldrive(catalog, remote="teldrive:", executable=str(fake))
