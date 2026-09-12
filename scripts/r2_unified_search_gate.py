@@ -19,7 +19,7 @@ def main() -> int:
     cli = CLI.read_text(encoding="utf-8")
     checks.append(("canonical unified search module exists", SEARCH.exists()))
     checks.append(("FTS5 virtual table is canonical index", "USING fts5" in text))
-    checks.append(("optional content is unified", all(x in text for x in ["r2_search_content", "index_content", "content")]))
+    checks.append(("optional content is unified", all(x in text for x in ["r2_search_content", "index_content", "content"])))
     checks.append(("structured filters are supported", all(x in text for x in ["source_type", "path_prefix", "min_size", "modified_after"])))
     checks.append(("deterministic ordering and pagination are bounded", all(x in text for x in ["ORDER BY", "LIMIT ? OFFSET ?", "MAX_LIMIT"])))
     checks.append(("content input is bounded", "MAX_CONTENT_CHARS" in text))
