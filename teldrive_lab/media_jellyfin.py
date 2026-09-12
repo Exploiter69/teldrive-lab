@@ -55,9 +55,12 @@ def stop_exposure(exposure:MediaExposure):
  if exposure.pid:
   try:os.killpg(exposure.pid,signal.SIGTERM)
   except ProcessLookupError:pass
-def _request(base_url,path,*,method="GET",token=None,payload=None,timeout=10):
+def _request(base_url,path,*,method="GET",token=None,payload=None,timeout=10,auth=False):
  data=None if payload is None else json.dumps(payload).encode();h={"Accept":"application/json","Content-Type":"application/json"}
- if token:h["X-Emby-Token"]=token
+ if auth:
+  h["Authorization"]='MediaBrowser Client="TelDrive-Lab", Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
+ elif token:
+  h["Authorization"]=f'MediaBrowser Token="{token}"'
  req=urllib.request.Request(base_url.rstrip("/")+path,data=data,headers=h,method=method)
  try:
   with urllib.request.urlopen(req,timeout=timeout) as response:
@@ -83,7 +86,7 @@ def configure_jellyfin(base_url,username="r3-admin",password="R3-Gate-2026-Dispo
   try:_request(base_url,path,method="POST",payload=payload)
   except R3Error as exc:
    if "HTTP 401" not in str(exc) and "HTTP 400" not in str(exc):raise
- _,auth=_request(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password});token=auth.get("AccessToken") if isinstance(auth,dict) else None
+ _,auth_result=_request(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password},auth=True);token=auth_result.get("AccessToken") if isinstance(auth_result,dict) else None
  if not token:raise R3Error("Jellyfin authentication returned no access token")
  return token
 def add_library(base_url,token,name,path,collection_type="music"):
@@ -104,7 +107,7 @@ def find_item(base_url,token,name):
 def verify_stream(base_url,token,item_id,timeout=20):
  for endpoint in (f"/Audio/{item_id}/stream?static=true",f"/Items/{item_id}/Download"):
   try:
-   req=urllib.request.Request(base_url.rstrip("/")+endpoint,headers={"X-Emby-Token":token})
+   req=urllib.request.Request(base_url.rstrip("/")+endpoint,headers={"Authorization":f'MediaBrowser Token="{token}"'})
    with urllib.request.urlopen(req,timeout=timeout) as response:
     chunk=response.read(4096)
     if chunk:return {"ok":True,"status":response.status,"bytes_sampled":len(chunk),"endpoint":endpoint}
@@ -119,7 +122,7 @@ def make_fixture(root:Path)->Path:
  return wav
 def docker_run_jellyfin(config:Path,cache:Path,media:Path,port:int)->str:
  if shutil.which("docker") is None:raise R3Error("docker is required for the real Jellyfin R3 gate")
- name=f"teldrive-r3-{os.getpid()}";cmd=["docker","run","-d","--rm","--name",name,"-p",f"127.0.0.1:{port}:8096","--mount",f"type=bind,source={config},target=/config","--mount",f"type=bind,source={cache},target=/cache","--mount",f"type=bind,source={media},target=/media,readonly","ghcr.io/jellyfin/jellyfin:latest"]
+ name=f"teldrive-r3-{os.getpid()}";cmd=["docker","run","-d","--rm","--name",name,"-p",f"127.0.0.1:{port}:8096","--mount",f"type=bind,source={config},target=/config","--mount",f"type=bind,source={cache},target=/cache","--mount",f"type=bind,source={media},target=/media,readonly","ghcr.io/jellyfin/jellyfin:12.0"]
  proc=subprocess.run(cmd,capture_output=True,text=True,check=False,timeout=120)
  if proc.returncode:raise R3Error(proc.stderr[-2000:])
  return name
