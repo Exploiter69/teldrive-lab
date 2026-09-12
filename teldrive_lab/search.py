@@ -5,7 +5,6 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 
 from .catalog import Catalog
 from .models import FileRecord, SourceType
@@ -106,7 +105,7 @@ class UnifiedSearch:
                 join = "JOIN r2_search_fts s ON s.record_id = f.id"
                 where.append("s.r2_search_fts MATCH ?")
                 params.append(_fts_match(parsed.text))
-                order = "bm25(s) ASC, f.path COLLATE NOCASE ASC"
+                order = "bm25(r2_search_fts) ASC, f.path COLLATE NOCASE ASC"
             if parsed.source_type: where.append("f.source_type=?"); params.append(parsed.source_type.value)
             if parsed.source_identifier: where.append("f.source_identifier=?"); params.append(parsed.source_identifier)
             if parsed.extension: where.append("f.extension=?"); params.append(_extension(parsed.extension))
