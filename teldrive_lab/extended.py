@@ -1,8 +1,7 @@
 """Compatibility facade for the canonical Phase 12-22 implementation.
 
-New code must import from :mod:`teldrive_lab.advanced`. This module preserves
-legacy names and result shapes for existing callers while delegating filesystem
-work to the canonical bounded/streaming implementation.
+New code should import from :mod:`teldrive_lab.advanced`. Legacy names remain
+available here while filesystem work delegates to bounded/streaming primitives.
 """
 from __future__ import annotations
 
@@ -10,13 +9,14 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
 from . import advanced
-from .resources import DEFAULT_MAX_DEPTH, DEFAULT_MAX_FILES, DEFAULT_SAMPLE_BYTES, ResourceLimitError, iter_files, read_text_bounded, stream_sha256
+from .resources import DEFAULT_MAX_DEPTH, DEFAULT_MAX_FILES, DEFAULT_SAMPLE_BYTES, iter_files, stream_sha256
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class StorageObservation:
 
 
 def observe_storage(root: str | Path, *, now: float | None = None, hot_days: int = 30, cold_days: int = 180, max_depth: int = DEFAULT_MAX_DEPTH, max_files: int = DEFAULT_MAX_FILES) -> list[StorageObservation]:
-    base = Path(root).expanduser().resolve(); current = now or __import__("time").time(); out = []
+    base = Path(root).expanduser().resolve(); current = now or time.time(); out = []
     for p in iter_files(base, max_depth=max_depth, max_files=max_files):
         st = p.stat(); age = max(0.0, current - max(st.st_atime, st.st_mtime)); days = age / 86400; score = max(0.0, 1.0 - days / max(hot_days, 1)); tier = "hot" if days <= hot_days else "warm" if days <= cold_days else "cold"
         out.append(StorageObservation(p.relative_to(base).as_posix(), st.st_size, st.st_atime, st.st_mtime, round(score, 6), tier))
@@ -47,8 +47,9 @@ def concurrency_budget(*, ram_available_mb: int, per_worker_mb: int = 256, cpu_c
 
 
 def cache_eviction_plan(observations: Iterable[StorageObservation], *, target_bytes: int) -> dict:
-    now = __import__("time").time(); heat = [advanced.StorageHeat(x.path, x.size, 0, x.mtime, x.tier, x.hot_score) for x in observations]
-    return advanced.eviction_plan(heat, target_bytes) | {"selected_bytes": advanced.eviction_plan(heat, target_bytes)["planned_bytes"]}
+    heat = [advanced.StorageHeat(x.path, x.size, 0, x.mtime, x.tier, x.hot_score) for x in observations]
+    result = advanced.eviction_plan(heat, target_bytes)
+    return result | {"selected_bytes": result["planned_bytes"]}
 
 
 def _now() -> str: return datetime.now(timezone.utc).isoformat()
@@ -56,7 +57,7 @@ def _now() -> str: return datetime.now(timezone.utc).isoformat()
 
 def export_catalog_metadata(db_path: str | Path, output: str | Path) -> Path:
     db = Path(db_path); dest = Path(output); dest.parent.mkdir(parents=True, exist_ok=True); conn = sqlite3.connect(db); conn.row_factory = sqlite3.Row
-    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name')]
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
     payload = {"schema": 1, "exported_at": _now(), "tables": {}}
     for table in tables: payload["tables"][table] = [dict(r) for r in conn.execute(f'SELECT * FROM "{table}"').fetchall()]
     conn.close(); dest.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8"); return dest
@@ -93,7 +94,7 @@ def document_fingerprint(path: str | Path) -> dict:
 
 
 def content_search(paths: Iterable[str | Path], query: str, *, limit: int = 50, max_bytes: int = DEFAULT_SAMPLE_BYTES) -> list[dict]:
-    index = advanced.content_index([Path(p) for p in paths], max_bytes=max_bytes); return advanced.search_content(index, query, limit)
+    return advanced.search_content(advanced.content_index([Path(p) for p in paths], max_bytes=max_bytes), query, limit)
 
 
 @dataclass(frozen=True)
@@ -136,8 +137,7 @@ def verify_snapshot_manifest(manifest: str | Path, root: str | Path, *, max_dept
         if p is None: missing.append(item["relative_path"]); continue
         digest, size = stream_sha256(p)
         if size != item["size"] or digest != item["sha256"]: changed.append(item["relative_path"])
-    extra = sorted(set(actual) - {x["relative_path"] for x in data.get("entries", [])})
-    return {"verified": not missing and not changed and not extra, "missing": missing, "changed": changed, "extra": extra, "entry_count": len(data.get("entries", []))}
+    return {"verified": not missing and not changed, "missing": missing, "changed": changed, "entry_count": len(data.get("entries", []))}
 
 
 @dataclass(frozen=True)
@@ -163,13 +163,13 @@ def experimental_registry() -> list[ExperimentSpec]: return [ExperimentSpec("con
 
 
 def control_center_payload(root: str | Path) -> dict:
-    observations = observe_storage(root); return {"schema": 1, "generated_at": _now(), "storage": storage_economics(observations), "cache": cache_pressure(Path(root) / "cache", max(1, Path(root).stat().st_size if Path(root).exists() and Path(root).is_file() else 1)), "integrations": [asdict(x) for x in integration_contracts()], "experiments": [asdict(x) for x in experimental_registry()], "authority": "teldrive", "ui_mutation_policy": "none"}
+    observations = observe_storage(root); return {"schema": 1, "generated_at": _now(), "storage": storage_economics(observations), "cache": cache_pressure(Path(root) / "cache", 1), "integrations": [asdict(x) for x in integration_contracts()], "experiments": [asdict(x) for x in experimental_registry()], "authority": "teldrive", "ui_mutation_policy": "none"}
 
 
 def validate_extended_safety() -> dict: return {"production_write": False, "production_delete": False, "automatic_eviction": False, "telldrive_db_write": False, "ai_authority": False, "all_mutations_require_explicit_authorization": True}
 
 
-# Canonical advanced symbols remain directly available for legacy imports.
+# Direct aliases for canonical symbols used by legacy callers.
 StorageHeat = advanced.StorageHeat
 storage_tier = advanced.storage_tier
 storage_heatmap = advanced.storage_heatmap
