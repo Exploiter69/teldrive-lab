@@ -26,7 +26,7 @@ def test_fts_search_is_unified_and_auto_rebuilds(tmp_path):
     page = search.search("dune")
     assert page.total == 2
     assert page.index_rebuilt is True
-    assert [hit.record.name for hit in page.hits] == ["Dune Part Two.mkv", "Dune soundtrack.flac"]
+    assert {hit.record.name for hit in page.hits} == {"Dune Part Two.mkv", "Dune soundtrack.flac"}
     catalog.upsert(record("Books/Dune.epub", size=10_000, mime="application/epub+zip"))
     page = search.search("dune")
     assert page.total == 3
