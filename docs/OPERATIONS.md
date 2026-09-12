@@ -120,9 +120,17 @@ Do not repair production state by editing the TelDrive database directly.
 
 ## 10. Resource-conscious operation
 
-The primary target is a modest local machine. Avoid unnecessary always-on services, mandatory search clusters, mandatory embeddings, or remote AI dependencies. Prefer SQLite/local processing and mature external tools where they already solve the problem. New recursive or content-processing workflows should use bounded traversal and streaming rather than loading entire files into memory.
+The primary target is a modest local machine. Avoid unnecessary always-on services, mandatory search clusters, mandatory embeddings, or remote AI dependencies. Prefer SQLite/local processing and mature external tools where they already solve the problem. New recursive or content-processing workflows use bounded traversal and streaming rather than loading entire files into memory.
 
-## 11. What TelDrive Lab does not promise
+Canonical filesystem limits are implemented in `teldrive_lab/resources.py`. Traversal is deterministic, bounded by maximum depth/file count, does not follow symlinks by default, and raises an explicit resource-limit error instead of silently truncating a scan. SHA-256 and CAS transfers stream fixed-size chunks; byte sampling is bounded.
+
+## 11. Read-only HTTP API binding
+
+The Lab's read-only JSON API and local control center are **loopback-only by default**. Valid bind hosts are `127.0.0.1` and `::1`; `localhost` is accepted only when it resolves exclusively to loopback. Wildcard, LAN/private, and public addresses are rejected. The services remain GET-only for their read routes; POST, PUT, and DELETE return `405`.
+
+GET-only is not treated as sufficient protection for network exposure. There is no unauthenticated non-loopback mode. Do not bypass the binding validator or expose these services through a LAN/public listener without adding a separately reviewed authenticated boundary.
+
+## 12. What TelDrive Lab does not promise
 
 TelDrive/Telegram is a supported storage substrate, not a promise of unlimited or permanent storage. Do not assume undocumented provider limits, guaranteed throughput, or a single Telegram account as the only verified copy.
 
