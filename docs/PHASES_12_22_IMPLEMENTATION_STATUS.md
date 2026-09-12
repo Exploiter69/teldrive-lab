@@ -42,6 +42,19 @@ See `docs/RECONCILIATION_GATE_R0.md` for the full product reconciliation and dep
 | 21 | EXPERIMENTAL | Experimental capabilities exist and remain isolated until proven. |
 | 22 | INCOMPLETE | Control Center is a UI/API shell with default empty payloads rather than a live control-plane surface. |
 
+## R0 hardening evidence
+
+R0 closes repository-level implementation hygiene without promoting later product workflows to COMPLETE:
+
+- `teldrive_lab/advanced.py` is the canonical Phase 12–22 implementation.
+- `teldrive_lab/extended.py` is a compatibility facade for legacy imports.
+- `teldrive_lab/resources.py` provides deterministic bounded traversal, explicit resource-limit failures, streaming SHA-256, bounded sampling, and streaming copy primitives.
+- Canonical Phase 12–22 code contains no unbounded `rglob()` traversal or whole-file `read_bytes()` operation.
+- Read-only JSON/control-center HTTP servers validate loopback binding and reject wildcard/LAN/public exposure by default.
+- R0 tests exercise traversal limits, symlink containment, streaming hashes, bounded sampling, CAS/dedup, compatibility delegation, and HTTP read-only behavior.
+
+These are reconciliation/hardening outcomes only. They do not change the product-critical gaps below.
+
 ## Product-critical gaps
 
 ### Corpus discovery
