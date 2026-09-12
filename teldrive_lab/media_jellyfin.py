@@ -57,10 +57,8 @@ def stop_exposure(exposure:MediaExposure):
   except ProcessLookupError:pass
 def _request(base_url,path,*,method="GET",token=None,payload=None,timeout=10,auth=False):
  data=None if payload is None else json.dumps(payload).encode();h={"Accept":"application/json","Content-Type":"application/json"}
- if auth:
-  h["Authorization"]='MediaBrowser Client="TelDrive-Lab", Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
- elif token:
-  h["Authorization"]=f'MediaBrowser Token="{token}"'
+ if auth:h["Authorization"]='MediaBrowser Client="TelDrive-Lab", Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
+ elif token:h["Authorization"]=f'MediaBrowser Token="{token}"'
  req=urllib.request.Request(base_url.rstrip("/")+path,data=data,headers=h,method=method)
  try:
   with urllib.request.urlopen(req,timeout=timeout) as response:
@@ -96,9 +94,13 @@ def add_library(base_url,token,name,path,collection_type="music"):
   if "HTTP 409" not in str(exc):raise
 def refresh_library(base_url,token):_request(base_url,"/Library/Refresh",method="POST",token=token,payload=None)
 def library_items(base_url,token,search_term=""):
- q={"Recursive":"true","Limit":"100"}
+ _,me=_request(base_url,"/Users/Me",token=token)
+ user_id=me.get("Id") if isinstance(me,dict) else None
+ if not user_id:raise R3Error("Jellyfin authentication returned no user id")
+ q={"UserId":user_id,"Recursive":"true","Limit":"100","IncludeItemTypes":"Audio"}
  if search_term:q["SearchTerm"]=search_term
- _,d=_request(base_url,"/Items?"+urllib.parse.urlencode(q),token=token);return list(d.get("Items",[])) if isinstance(d,dict) else []
+ _,d=_request(base_url,"/Items?"+urllib.parse.urlencode(q),token=token)
+ return list(d.get("Items",[])) if isinstance(d,dict) else []
 def find_item(base_url,token,name):
  stem=Path(name).stem
  for item in library_items(base_url,token,stem):
