@@ -13,7 +13,7 @@ python -m pip install -e .
 td init
 ```
 
-Lab-owned runtime state defaults to `~/.local/share/teldrive-lab`; cache defaults alongside the Lab runtime unless `TELDRIVE_LAB_STATE` or `TELDRIVE_LAB_CACHE` is configured.
+Lab-owned runtime state defaults to `~/.local/share/teldrive-lab`; cache defaults alongside the Lab runtime unless `TELDRIVE_LAB_STATE` or `TELDRIVE_LAB_CACHE` is configured. The Lab rejects a configured state or cache path that resolves inside a protected production boundary.
 
 ## 2. First checks
 
@@ -69,20 +69,20 @@ Policy → Authorization → Execution → Verification → Audit
 
 Mutation authorization is scope-bound. An authorization receipt must match the requested operation and normalized paths exactly and must be approved. A valid receipt cannot override the protected production boundary.
 
-On a different host, additional protected roots/state may be configured with:
+The built-in protected roots/state are always active. Operators may **add** additional protected paths with:
 
-- `TELDRIVE_LAB_PROTECTED_ROOTS`
-- `TELDRIVE_LAB_PROTECTED_STATE`
+- `TELDRIVE_LAB_PROTECTED_ROOTS` — path-list using the host path separator (`:` on Linux)
+- `TELDRIVE_LAB_PROTECTED_STATE` — path-list using the host path separator
 
-These settings are additive: configuration can strengthen protection but cannot remove the built-in protected paths.
+These settings are additive only: configuration can strengthen protection but cannot remove or replace the built-in protected paths.
 
 ## 5. Transfers and rclone
 
-When byte movement is required, prefer the mature rclone boundary rather than rebuilding a transfer engine.
+When byte movement is required, prefer the controlled transfer boundary rather than rebuilding a transfer engine.
 
 The Lab owns policy, authorization, durable job state, verification evidence, provenance, and audit. rclone provides transfer/protocol primitives.
 
-Do not expose arbitrary shell commands through the Lab or treat rclone as an authorization mechanism.
+Do not expose arbitrary shell commands through the Lab or treat rclone as an authorization mechanism. The current Lab rclone integration is deliberately narrow; dry-run/adapter evidence must not be described as a complete production backend.
 
 ## 6. Integrity, duplicates, and organization
 
@@ -100,7 +100,7 @@ A provider outage should result in a degraded/paused workflow, preservation of l
 
 ## 8. Optional capabilities
 
-rclone, Docker, FFmpeg, Tesseract, Whisper, Ollama, and other integrations are optional. Core operation must remain useful without an LLM or paid service.
+rclone, Docker, FFmpeg, Tesseract, Whisper, Ollama, Jellyfin, and other integrations are optional. Core operation must remain useful without an LLM or paid service.
 
 AI, when enabled, is advisory. It cannot authorize deletion, overwrite data, change retention, restore over existing content, expose private data, or migrate the only verified copy.
 
@@ -120,7 +120,7 @@ Do not repair production state by editing the TelDrive database directly.
 
 ## 10. Resource-conscious operation
 
-The primary target is a modest local machine. Avoid unnecessary always-on services, mandatory search clusters, mandatory embeddings, or remote AI dependencies. Prefer SQLite/local processing and mature external tools where they already solve the problem.
+The primary target is a modest local machine. Avoid unnecessary always-on services, mandatory search clusters, mandatory embeddings, or remote AI dependencies. Prefer SQLite/local processing and mature external tools where they already solve the problem. New recursive or content-processing workflows should use bounded traversal and streaming rather than loading entire files into memory.
 
 ## 11. What TelDrive Lab does not promise
 
