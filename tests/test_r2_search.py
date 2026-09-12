@@ -42,6 +42,7 @@ def test_structured_filters_sort_and_pagination(tmp_path):
     assert page.total == 1
     assert page.hits[0].record.name == "big.mp4"
     assert parse_size("1.5gb") == int(1.5 * 1024**3)
+    assert UnifiedSearch(catalog).search("type:video").total == 2
 
 
 def test_path_tag_and_empty_text_filters(tmp_path):
@@ -53,6 +54,19 @@ def test_path_tag_and_empty_text_filters(tmp_path):
     assert page.total == 1
     assert page.hits[0].record.path == "Movies/a.mp4"
     assert search.search(parse_query("ext:mp3")).total == 1
+
+
+def test_optional_content_index_is_searchable_and_rebuildable(tmp_path):
+    catalog = Catalog(tmp_path / "catalog.db")
+    catalog.upsert(record("Docs/report.pdf", mime="application/pdf"))
+    search = UnifiedSearch(catalog)
+    record_id = catalog.get(SourceType.TELDRIVE, "rclone:teldrive:teldrive", "Docs/report.pdf").id
+    assert record_id is not None
+    search.index_content(record_id, "confidential engineering report with recovery plan", kind="ocr")
+    page = search.search("recovery")
+    assert page.total == 1
+    search.remove_content(record_id)
+    assert search.search("recovery").total == 0
 
 
 def test_search_is_read_only_and_rejects_bad_queries(tmp_path):
