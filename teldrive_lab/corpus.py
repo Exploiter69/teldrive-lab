@@ -1,10 +1,4 @@
-"""Automatic, read-only discovery of an existing TelDrive corpus.
-
-R1 deliberately treats TelDrive/rclone as the source of truth.  The Lab owns
-only the derived SQLite catalog.  Discovery never writes to the remote, never
-hashes/downloads file contents, and reports objects that disappeared since a
-previous observation without deleting their catalog records.
-"""
+"""Automatic, read-only discovery of an existing TelDrive corpus."""
 
 from __future__ import annotations
 
@@ -15,7 +9,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable
 
 from .catalog import Catalog, utc_now
 from .models import (
@@ -66,9 +60,8 @@ class DiscoveryLimitError(CorpusDiscoveryError):
 class RcloneTelDriveSource:
     """Read-only TelDrive source backed by an existing rclone remote.
 
-    The rclone remote is expected to point at TelDrive.  The adapter uses only
-    ``rclone lsf`` (listing) and never invokes copy, move, delete, purge, or
-    config mutation commands.
+    The adapter uses only ``rclone lsf`` and never invokes copy, move, delete,
+    purge, sync, mount, or config mutation commands.
     """
 
     def __init__(
@@ -90,12 +83,10 @@ class RcloneTelDriveSource:
         return f"rclone:teldrive:{self.remote}{suffix}"
 
     def discover(self, catalog: Catalog) -> CorpusDiscoveryResult:
-        candidate = Path(self.root) if self.root else Path(".")
-        decision = authorize(Operation.INDEX, candidate)
+        # The rclone remote is an external observation source, not a Lab-owned
+        # filesystem. No production path is opened or mutated by this adapter.
+        decision = authorize(Operation.INDEX, Path("."))
         if not decision.allowed:
-            # The remote is not a production filesystem path, but using the
-            # existing operation gate still keeps discovery under one policy.
-            # A relative placeholder is always allowed by the R0 safety model.
             raise PermissionError(decision.reason)
 
         observed_at = utc_now()
@@ -110,9 +101,6 @@ class RcloneTelDriveSource:
                 break
             try:
                 path, size, modified_at = row
-                if not path:
-                    skipped += 1
-                    continue
                 normalized = _normalize_remote_path(path)
                 if not normalized:
                     skipped += 1
@@ -165,7 +153,7 @@ class RcloneTelDriveSource:
         )
 
     def _list_rows(self) -> Iterable[tuple[str, int | None, str | None]]:
-        target = self.remote if not self.root else f"{self.remote}:{self.root}"
+        target = f"{self.remote}:{self.root}" if self.root else f"{self.remote}:"
         command = [
             self.executable,
             "lsf",
@@ -234,9 +222,9 @@ def _validate_remote(remote: str) -> str:
     value = remote.strip()
     if not value or any(char in value for char in "\r\n"):
         raise ValueError("remote must be a non-empty single-line rclone remote")
-    if ":" not in value:
-        raise ValueError("remote must include an rclone remote name ending with ':'")
-    return value.rstrip(":")
+    if ":" not in value or not value.endswith(":"):
+        raise ValueError("remote must be an rclone remote name ending with ':'")
+    return value[:-1]
 
 
 def _normalize_remote_path(path: str) -> str:
