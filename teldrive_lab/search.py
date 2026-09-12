@@ -11,6 +11,7 @@ from .models import FileRecord, SourceType
 
 MAX_LIMIT = 500
 MAX_QUERY_LENGTH = 512
+MAX_CONTENT_CHARS = 2_000_000
 
 @dataclass(frozen=True, slots=True)
 class SearchQuery:
@@ -46,7 +47,7 @@ class SearchError(ValueError):
     pass
 
 class UnifiedSearch:
-    """FTS5-backed, structured, deterministic search over canonical catalog rows."""
+    """FTS5-backed unified search over metadata plus optional content indexes."""
     def __init__(self, catalog: Catalog) -> None:
         self.catalog = catalog
         self.db_path = catalog.path
@@ -61,36 +62,58 @@ class UnifiedSearch:
     def _ensure_schema(self) -> None:
         with self._connect() as connection:
             try:
-                connection.execute("CREATE VIRTUAL TABLE IF NOT EXISTS r2_search_fts USING fts5(record_id UNINDEXED, path, name, parent_path, extension, mime_type, source_identifier, tags)")
+                columns = connection.execute("PRAGMA table_info(r2_search_fts)").fetchall()
+                if columns and "content" not in {row[1] for row in columns}:
+                    connection.execute("DROP TABLE r2_search_fts")
+                connection.execute("CREATE VIRTUAL TABLE IF NOT EXISTS r2_search_fts USING fts5(record_id UNINDEXED, path, name, parent_path, extension, mime_type, source_identifier, tags, content)")
             except sqlite3.OperationalError as exc:
                 raise SearchError("SQLite FTS5 is required for R2 unified search") from exc
-            connection.execute("CREATE TABLE IF NOT EXISTS r2_search_state (id INTEGER PRIMARY KEY CHECK(id=1), row_count INTEGER NOT NULL, max_last_seen TEXT, max_modified TEXT)")
+            connection.execute("CREATE TABLE IF NOT EXISTS r2_search_content (record_id INTEGER PRIMARY KEY, kind TEXT NOT NULL, content TEXT NOT NULL)")
+            connection.execute("CREATE TABLE IF NOT EXISTS r2_search_state (id INTEGER PRIMARY KEY CHECK(id=1), row_count INTEGER NOT NULL, max_last_seen TEXT, max_modified TEXT, content_count INTEGER NOT NULL)")
             connection.commit()
 
     @staticmethod
-    def _fingerprint(connection: sqlite3.Connection) -> tuple[int, str | None, str | None]:
+    def _fingerprint(connection: sqlite3.Connection) -> tuple[int, str | None, str | None, int]:
         row = connection.execute("SELECT COUNT(*) AS count, MAX(last_seen_at) AS last_seen, MAX(modified_at) AS modified FROM files").fetchone()
-        return int(row["count"]), row["last_seen"], row["modified"]
+        content_count = int(connection.execute("SELECT COUNT(*) FROM r2_search_content").fetchone()[0])
+        return int(row["count"]), row["last_seen"], row["modified"], content_count
 
     def rebuild(self) -> None:
         with self._connect() as connection:
             connection.execute("DELETE FROM r2_search_fts")
-            rows = connection.execute("SELECT id,path,name,parent_path,extension,mime_type,source_identifier,tags FROM files ORDER BY id").fetchall()
-            connection.executemany("INSERT INTO r2_search_fts(record_id,path,name,parent_path,extension,mime_type,source_identifier,tags) VALUES (?,?,?,?,?,?,?,?)", [tuple(row) for row in rows])
-            count, last_seen, modified = self._fingerprint(connection)
+            rows = connection.execute("SELECT f.id,f.path,f.name,f.parent_path,f.extension,f.mime_type,f.source_identifier,f.tags,COALESCE(c.content,'') FROM files f LEFT JOIN r2_search_content c ON c.record_id=f.id ORDER BY f.id").fetchall()
+            connection.executemany("INSERT INTO r2_search_fts(record_id,path,name,parent_path,extension,mime_type,source_identifier,tags,content) VALUES (?,?,?,?,?,?,?,?,?)", [tuple(row) for row in rows])
+            count, last_seen, modified, content_count = self._fingerprint(connection)
             connection.execute("DELETE FROM r2_search_state")
-            connection.execute("INSERT INTO r2_search_state(id,row_count,max_last_seen,max_modified) VALUES(1,?,?,?)", (count, last_seen, modified))
+            connection.execute("INSERT INTO r2_search_state(id,row_count,max_last_seen,max_modified,content_count) VALUES(1,?,?,?,?)", (count, last_seen, modified, content_count))
             connection.commit()
 
     def ensure_current(self) -> bool:
         with self._connect() as connection:
-            count, last_seen, modified = self._fingerprint(connection)
-            state = connection.execute("SELECT row_count,max_last_seen,max_modified FROM r2_search_state WHERE id=1").fetchone()
-            current = state is not None and int(state["row_count"]) == count and state["max_last_seen"] == last_seen and state["max_modified"] == modified
+            count, last_seen, modified, content_count = self._fingerprint(connection)
+            state = connection.execute("SELECT row_count,max_last_seen,max_modified,content_count FROM r2_search_state WHERE id=1").fetchone()
+            current = state is not None and int(state["row_count"]) == count and state["max_last_seen"] == last_seen and state["max_modified"] == modified and int(state["content_count"]) == content_count
         if current:
             return False
         self.rebuild()
         return True
+
+    def index_content(self, record_id: int, content: str, *, kind: str = "text") -> None:
+        if record_id < 1: raise SearchError("record_id must be positive")
+        if len(content) > MAX_CONTENT_CHARS: raise SearchError(f"content exceeds {MAX_CONTENT_CHARS} characters")
+        if not kind or len(kind) > 64: raise SearchError("content kind must be 1-64 characters")
+        with self._connect() as connection:
+            exists = connection.execute("SELECT 1 FROM files WHERE id=?", (record_id,)).fetchone()
+            if exists is None: raise SearchError(f"catalog record not found: {record_id}")
+            connection.execute("INSERT INTO r2_search_content(record_id,kind,content) VALUES(?,?,?) ON CONFLICT(record_id) DO UPDATE SET kind=excluded.kind,content=excluded.content", (record_id, kind, content))
+            connection.commit()
+        self.rebuild()
+
+    def remove_content(self, record_id: int) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM r2_search_content WHERE record_id=?", (record_id,))
+            connection.commit()
+        self.rebuild()
 
     def search(self, query: SearchQuery | str) -> SearchPage:
         parsed = parse_query(query) if isinstance(query, str) else query
@@ -109,7 +132,11 @@ class UnifiedSearch:
             if parsed.source_type: where.append("f.source_type=?"); params.append(parsed.source_type.value)
             if parsed.source_identifier: where.append("f.source_identifier=?"); params.append(parsed.source_identifier)
             if parsed.extension: where.append("f.extension=?"); params.append(_extension(parsed.extension))
-            if parsed.mime_type: where.append("f.mime_type=?"); params.append(parsed.mime_type)
+            if parsed.mime_type:
+                if "/" not in parsed.mime_type and not parsed.mime_type.startswith("."):
+                    where.append("f.mime_type LIKE ?"); params.append(parsed.mime_type + "/%")
+                else:
+                    where.append("f.mime_type=?"); params.append(parsed.mime_type)
             if parsed.path_prefix:
                 prefix = parsed.path_prefix.rstrip("/")
                 where.append("(f.path=? OR f.path LIKE ?)"); params.extend([prefix, prefix + "/%"])
