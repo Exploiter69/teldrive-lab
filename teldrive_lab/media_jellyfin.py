@@ -67,7 +67,7 @@ def _request(base_url,path,*,method="GET",token=None,payload=None,timeout=10,aut
    try:return response.status,json.loads(raw.decode())
    except json.JSONDecodeError:return response.status,raw
  except urllib.error.HTTPError as exc:raise R3Error(f"Jellyfin HTTP {exc.code}: {exc.read().decode(errors='replace')[:500]}") from exc
- except urllib.error.URLError as exc:raise R3Error(f"Jellyfin unreachable: {exc.reason}") from exc
+ except (urllib.error.URLError,OSError) as exc:raise R3Error(f"Jellyfin unreachable: {exc}") from exc
 def jellyfin_status(base_url="http://127.0.0.1:8096"):
  try:
   _,d=_request(base_url,"/System/Info/Public",timeout=3);return JellyfinStatus(True,d.get("ServerName"),d.get("Version"),base_url)
