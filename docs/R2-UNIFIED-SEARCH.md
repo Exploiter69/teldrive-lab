@@ -73,4 +73,5 @@ R2 is complete only when all of the following are green:
 5. Search does not mutate catalog records.
 6. R2 gate and full CI pass.
 
+This document is intentionally evidence-gated: implementation alone does not mark R2 complete.
 R3 remains blocked until this evidence is green.
