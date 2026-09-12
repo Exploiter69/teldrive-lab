@@ -1,4 +1,5 @@
 import http.client
+import threading
 
 import pytest
 
@@ -16,15 +17,21 @@ def test_loopback_policy():
 
 def test_readonly_json_api_methods():
     server = serve_json_api(lambda: {"value": 42}, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
     try:
         port = server.server_address[1]
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
         for method, path, expected in (("GET", "/health", 200), ("GET", "/metadata", 200), ("POST", "/metadata", 405), ("PUT", "/metadata", 405), ("DELETE", "/metadata", 405)):
             conn.request(method, path)
-            assert conn.getresponse().status == expected
+            response = conn.getresponse()
+            assert response.status == expected
+            response.read()
         conn.close()
     finally:
+        server.shutdown()
         server.server_close()
+        thread.join(timeout=2)
 
 
 def test_control_center_rejects_non_loopback():
