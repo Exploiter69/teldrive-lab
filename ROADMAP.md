@@ -2,135 +2,44 @@
 
 This is the canonical implementation roadmap for TelDrive Lab. It is ordered by dependency and safety, not by feature excitement.
 
+> **Product truth:** TelDrive remains the production storage authority. TelDrive Lab is the safe engineering control plane around it.
+
+## Completion standard
+
+A phase or capability is not `COMPLETE` merely because code, tests, an adapter, or a contract exists.
+
+```text
+PRIMITIVE → IMPLEMENTED → INTEGRATED → OPERATIONAL → END-TO-END VERIFIED → DOCUMENTED → COMPLETE
+```
+
+See `docs/RECONCILIATION_GATE_R0.md` for the evidence-based status and the R0→R5 reconciliation program.
+
 ---
 
 # Phase 0 — Lab Foundation
 
 **Goal:** establish the sidecar control plane without taking ownership of existing storage.
 
-## 0.1 Repository and runtime separation
+- repository and runtime separation
+- explicit protected production boundary
+- policy, authorization, job, transfer, catalog, verification, audit, and monitoring architecture
+- testable safety invariants
 
-- source code lives in `~/teldrive-lab`
-- runtime state lives in `~/.local/share/teldrive-lab/`
-- cache lives in `~/.cache/teldrive-lab/`
-- existing TelDrive data and state remain outside the Lab repository
-
-## 0.2 Core architecture
-
-```text
-                    ┌───────────────────────┐
-                    │       TelDrive        │
-                    │  existing authority   │
-                    └──────────┬────────────┘
-                               │
-                        supported interfaces
-                               │
-                               ▼
-┌──────────────────────────────────────────────────────────────┐
-│                       TelDrive Lab                           │
-│                                                              │
-│  CLI                                                         │
-│   │                                                          │
-│   ▼                                                          │
-│  Policy Engine ────────► Authorization                       │
-│   │                         │                                │
-│   ▼                         ▼                                │
-│  Job Engine ─────────► Transfer Manager                      │
-│   │                         │                                │
-│   ▼                         ▼                                │
-│  Catalog / Index ◄──── Verification                           │
-│   │                                                          │
-│   ▼                                                          │
-│  Audit / Monitoring                                           │
-└──────────────────────────────────────────────────────────────┘
-```
-
-## 0.3 Product principle
-
-TelDrive remains the storage authority. TelDrive Lab is a safe automation, indexing, verification, organization, archive, backup, monitoring, and intelligence layer around it.
-
-The Lab must never silently become the owner of production storage.
-
-### Exit criteria
-
-- architecture documents are internally consistent
-- protected production boundary is explicit
-- no implementation assumes ownership of existing storage
-- safety invariants are testable
-- runtime state is outside the repository
+**Status at R0:** COMPLETE.
 
 ---
 
 # Phase 1 — Reliability & Safety Foundation
 
-**Goal:** prove that the Lab can observe, protect, back up, and recover the existing environment before introducing durable automation.
+**Goal:** observe, protect, back up, and recover the existing environment without silently repairing production.
 
-## 1.1 Recent regression protection
+- Recent regression protection (`Recent → createdAt`, not `updatedAt`)
+- secret-free configuration references/backups
+- database backup and isolated restore validation
+- mount/service health for TelDrive, PostgreSQL, Docker, rclone, FUSE, and storage roots
+- RAM/CPU/disk/network/process monitoring
 
-Preserve the existing invariant:
-
-```text
-Recent → createdAt
-```
-
-not `updatedAt`.
-
-Create a repeatable compatibility/regression check so future Lab or upstream work cannot silently regress the behavior.
-
-## 1.2 Safe configuration backup
-
-Create versioned, secret-free templates/references for:
-
-- TelDrive configuration
-- rclone service definitions/configuration references
-- systemd units
-- Docker configuration
-- Lab configuration
-
-Never commit secrets, session material, tokens, or private production state.
-
-## 1.3 Database backup and isolated restore
-
-Build and test:
-
-```text
-backup
- ↓
-verify backup exists
- ↓
-restore into isolated test location
- ↓
-validate
-```
-
-A backup that has never been restored is not considered proven.
-
-## 1.4 Mount and service health
-
-Observe:
-
-- `~/TelegramRaw`
-- `~/TelegramDrive`
-- FUSE health
-- read/write accessibility where safe
-- stale mount conditions
-- rclone systemd state
-- TelDrive
-- PostgreSQL
-- Docker
-
-Health monitoring must not silently repair or mutate production.
-
-## 1.5 Resource monitoring
-
-Track:
-
-- RAM
-- CPU
-- disk capacity
-- disk I/O
-- network reachability
-- rclone processes
+**Status at R0:** PARTIAL.
 
 ---
 
@@ -138,66 +47,14 @@ Track:
 
 **Goal:** build a rebuildable local catalog without becoming a second source of truth.
 
-## 2.1 Canonical file model
+- canonical `FileRecord`
+- SQLite derived catalog
+- bounded incremental discovery/ingestion from authoritative interfaces
+- filename/path search and FTS preparation
+- smart views
+- SHA-256 hash index and verification state
 
-The Lab uses a canonical `FileRecord` with provenance, source identity, destination identity, checksum state, verification state, and lifecycle metadata.
-
-## 2.2 SQLite catalog
-
-Use:
-
-```text
-~/.local/share/teldrive-lab/catalog.db
-```
-
-The catalog is derived, rebuildable state. Losing it must not mean losing storage data.
-
-## 2.3 Discovery and ingestion
-
-Implement bounded, incremental discovery from authoritative interfaces such as local filesystems and safely available TelDrive/rclone metadata.
-
-## 2.4 Search foundation
-
-Start with filename/path search and prepare SQLite FTS for later content search.
-
-Example concepts:
-
-```text
-td search "VAJRA"
-td search "quantum transformer"
-td search "*.pdf"
-```
-
-## 2.5 Smart views
-
-Examples:
-
-- large files
-- recent files
-- unverified
-- archives
-- datasets
-- encrypted
-- movies
-- backups
-- duplicates
-- never accessed
-
-These are query views, not physical storage reorganization.
-
-## 2.6 Hash index
-
-Use SHA-256 initially. Store hash, size, provenance, source/Telegram identity where available, and verification state. Benchmark BLAKE3 later before changing the canonical choice.
-
-### Phase 2 exit gate
-
-- catalog can be rebuilt from authoritative sources
-- indexing is incremental and bounded
-- deterministic hashes work
-- metadata search works
-- catalog corruption cannot corrupt production storage
-
-**Hard dependency:** Phase 2 must pass before Phase 3 Job Engine implementation.
+**Status at R0:** PARTIAL. The catalog exists, but authoritative TelDrive corpus discovery/ingestion is not yet complete. This is the R1 dependency.
 
 ---
 
@@ -205,100 +62,28 @@ Use SHA-256 initially. Store hash, size, provenance, source/Telegram identity wh
 
 **Goal:** replace fragile one-off automation with durable, restart-safe execution.
 
-### Core job types
+Core job types include `UPLOAD`, `DOWNLOAD`, `ARCHIVE`, `VERIFY`, `BACKUP`, `SNAPSHOT`, `ORGANIZE`, `CLEANUP`, `INDEX`, and `RESTORE`.
+
+Required states:
 
 ```text
-UPLOAD
-DOWNLOAD
-ARCHIVE
-VERIFY
-BACKUP
-SNAPSHOT
-ORGANIZE
-CLEANUP
-INDEX
-RESTORE
+QUEUED → RUNNING → VERIFYING → COMPLETED
+             ├→ PAUSED → QUEUED
+             ├→ FAILED
+             └→ CANCELLED
 ```
 
-### Required fields
+Required properties include durable timestamps/progress, leases, bounded retries, classified failures, parent/child jobs, explicit authorization, safe cancellation, and auditability.
 
-```text
-job_id
-type
-priority
-state
-created_at
-started_at
-updated_at
-completed_at
-attempts
-max_attempts
-retry_at
-source
-destination
-path
-size
-checksum
-progress
-error_code
-error_message
-worker_id
-lease_until
-parent_job_id
-```
-
-### States
-
-```text
-QUEUED
-RUNNING
-PAUSED
-VERIFYING
-COMPLETED
-FAILED
-CANCELLED
-```
-
-### Normal flow
-
-```text
-QUEUED
-  ↓
-RUNNING
-  ↓
-VERIFYING
-  ↓
-COMPLETED
-```
-
-### Worker rules
-
-- jobs survive process restarts
-- leases prevent duplicate workers
-- stale leases are recoverable
-- retries are bounded
-- retries use classified errors
-- worker never self-authorizes
-- destructive operations require explicit authorization
-- every transition is auditable
-
-### Exit criteria
-
-- queue survives restart
-- jobs can resume
-- duplicate execution is prevented
-- retry state is durable
-- cancellation is safe
-- parent/child jobs work
-- audit records exist
+**Status at R0:** FOUNDATION COMPLETE. The JobStore/lease/retry foundation exists, but the full executor model is reconciled later in R4.
 
 ---
 
 # Phase 4 — Transfer Manager
 
-**Goal:** create a single controlled transfer boundary for every future workflow.
+**Goal:** create one controlled transfer boundary for future workflows.
 
-### Transfer backends
+Backends:
 
 ```text
 Local filesystem
@@ -306,69 +91,17 @@ rclone
 future controlled backends
 ```
 
-### Required properties
+Required properties include explicit source/destination, dry-run, authorization, progress, bounded concurrency, retries, checksum verification, failure classification, reconciliation, and no arbitrary shell execution.
 
-- explicit source and destination
-- dry-run support
-- authorization support
-- progress reporting
-- bounded concurrency
-- bandwidth awareness
-- retries
-- checksum verification
-- failure classification
-- reconciliation
-- atomic publication where possible
-- no shell interpolation
-- no hidden mount changes
+The initial rclone boundary is intentionally narrow: controlled `rclone copyto` only; no config rewriting, remounting, or service reconfiguration.
 
-### rclone boundary
-
-Initial scope should be intentionally narrow:
-
-```text
-rclone copyto
-```
-
-with controlled arguments, no arbitrary shell commands, no config rewriting, no remounting, and no service reconfiguration.
-
-### Exit criteria
-
-- local transfer works
-- rclone boundary works in dry-run mode
-- checksum verification works
-- protected production paths are blocked
-- transfer failures are classified
-- resource limits are enforced
-- host gate passes without production mutation
+**Status at R0:** PARTIAL. Local transfer and the dry-run rclone boundary are proven. A complete production rclone backend is not yet integrated.
 
 ---
 
 # Phase 5 — Deterministic Organization Engine
 
 **Goal:** make organization predictable, policy-driven, and reviewable.
-
-### Classification inputs
-
-- MIME type
-- extension
-- filename
-- path
-- size
-- timestamps
-- existing metadata
-- explicit user rules
-
-### Policy examples
-
-```text
-projects/** → encrypted
-backups/** → encrypted
-movies/** → raw
-datasets/** → raw
-```
-
-### Workflow
 
 ```text
 td organize --dry-run
@@ -377,14 +110,16 @@ review plan
         ↓
 explicit authorization
         ↓
-td organize --apply
+controlled execution
         ↓
 verify
         ↓
 audit
 ```
 
-AI is not the organization authority. Deterministic policy decides whether and how a proposed classification is applied.
+AI is never the organization authority.
+
+**Status at R0:** PARTIAL. Deterministic planning/execution is proven in isolation; durable workflow, catalog, and audit integration remain for reconciliation.
 
 ---
 
@@ -392,75 +127,16 @@ AI is not the organization authority. Deterministic policy decides whether and h
 
 **Goal:** turn archival into a safe, composable one-way workflow.
 
-### Canonical flow
+Canonical flow:
 
 ```text
-DISCOVER
-  ↓
-HASH
-  ↓
-DUPLICATE CHECK
-  ↓
-POLICY EVALUATION
-  ↓
-DRY-RUN
-  ↓
-AUTHORIZATION
-  ↓
-QUEUE
-  ↓
-TRANSFER
-  ↓
-VERIFY
-  ↓
-INDEX
-  ↓
-AUDIT
+DISCOVER → HASH → DUPLICATE CHECK → POLICY → DRY-RUN → AUTHORIZATION
+→ QUEUE → TRANSFER → VERIFY → INDEX → AUDIT
 ```
 
-Example:
+Initial archival is local → TelDrive. Local source deletion and two-way synchronization are not part of the default workflow.
 
-```text
-td archive <file>
-```
-
-### Archive watcher
-
-A future staging directory such as `~/Archive/` may feed the same durable workflow:
-
-```text
-file appears
- ↓
-watcher
- ↓
-queue
- ↓
-archive workflow
-```
-
-### Critical boundary
-
-Initial archival is **local → TelDrive**. Local deletion/cleanup is not part of the default archive operation. Two-way synchronization is deferred.
-
-### Implementation status
-
-**COMPLETE — Phase 6 implementation is now present in the Lab.**
-
-Implemented in `teldrive_lab/archive.py` and integrated with the Phase 4 transfer boundary:
-
-- deterministic one-way local-source archive policy
-- SHA-256 discovery
-- informational duplicate detection
-- conflict-safe no-overwrite planning
-- protected production boundary enforcement
-- stable archive-plan digest
-- explicit authorization at apply time
-- post-transfer verification
-- durable `ARCHIVE` executor adapter
-- CLI dry-run/apply workflow
-- isolated Phase 6 host gate
-
-No local source deletion is performed, and the host gate performs zero production storage mutation.
+**Status at R0:** PARTIAL, not COMPLETE. The archive engine and durable adapter exist, but the CLI path does not yet fully connect catalog-wide duplicate detection, durable queue execution, destination indexing, and audit recording into the documented end-to-end workflow. R4 reconciles the execution path.
 
 ---
 
@@ -468,25 +144,16 @@ No local source deletion is performed, and the host gate performs zero productio
 
 **Goal:** know whether copies are trustworthy and identify duplicates without destructive automation.
 
-### Work
-
-- SHA-256 checksum database
+- SHA-256 checksum evidence
 - duplicate groups by checksum + size
-- upload verification
-- download verification
-- periodic verification
-- stale checksum detection
-- integrity reports
-- missing verified-copy reports
-- optional BLAKE3 benchmark
-
-### Safety invariant
+- verification and stale/missing-copy reporting
+- report-only duplicate handling
 
 ```text
 DUPLICATE FOUND ≠ DELETE
 ```
 
-The system may report potentially reclaimable space. Any destructive cleanup requires a separate explicit authorization workflow.
+**Status at R0:** CORE COMPLETE. The core integrity/duplicate evidence path is host-gated without production mutation.
 
 ---
 
@@ -494,43 +161,26 @@ The system may report potentially reclaimable space. Any destructive cleanup req
 
 **Goal:** make cleanup possible without making accidental destruction easy.
 
-### Work
-
-- quarantine/trash area
-- safety window before purge
-- retention policies
+- quarantine/trash
+- safety window and retention policy
 - explicit purge
-- immutable/locked archive mode
-- cleanup planner
 - protected-path enforcement
 - cleanup verification
 - lifecycle audit trail
 
-### Default
-
-Uncertain or protected states stop the operation rather than causing the system to guess.
+**Status at R0:** PARTIAL. Lifecycle primitives exist; complete CLI exposure and physical/logical terminal-state reconciliation remain.
 
 ---
 
 # Phase 9 — Scheduled Backups & Snapshots
 
-**Goal:** automate proven backup workflows using the durable Job Engine.
-
-### Flow
+**Goal:** automate proven backup workflows through the durable Job Engine.
 
 ```text
-schedule
- ↓
-snapshot/backup
- ↓
-checksum
- ↓
-archive
- ↓
-verify
- ↓
-retention
+schedule → snapshot/backup → checksum → archive → verify → retention
 ```
+
+**Status at R0:** PARTIAL. Scheduling can create durable backup jobs, but a complete backup executor path is not yet present.
 
 ---
 
@@ -538,28 +188,9 @@ retention
 
 **Goal:** know what the Lab is doing without constantly watching it.
 
-### Monitoring
+Monitor service health, job health, throughput, queue depth, failures, disk/cache use, RAM pressure, network failures, and integrity failures. Prefer local/free notifications.
 
-- service health
-- job health
-- transfer throughput
-- queue depth
-- failed jobs
-- disk usage
-- cache usage
-- RAM pressure
-- network failures
-- integrity failures
-
-### Notifications
-
-Prefer free/local mechanisms first:
-
-- desktop notifications
-- local logs
-- webhook support only when explicitly configured
-
-No paid notification dependency.
+**Status at R0:** PARTIAL.
 
 ---
 
@@ -567,26 +198,9 @@ No paid notification dependency.
 
 **Goal:** make the Lab controllable from the terminal without requiring a web UI.
 
-Example commands:
+Current control surfaces include status, health, search, index, jobs, job control, audit, monitoring, organization, archive, verification, lifecycle, and backup scheduling. The CLI must expose plans, dry-runs, authorization boundaries, job state, verification, and audit information.
 
-```text
-td status
-td health
-td search <query>
-td index
-td plan <operation>
-td jobs
-td job <id>
-td pause <id>
-td resume <id>
-td cancel <id>
-td verify <path>
-td archive <path>
-td organize <path>
-td backup
-```
-
-The CLI must expose plans, authorization boundaries, dry-runs, job state, verification, and audit information.
+**Status at R0:** PARTIAL. Documentation and implementation surfaces still require reconciliation.
 
 ---
 
@@ -594,17 +208,9 @@ The CLI must expose plans, authorization boundaries, dry-runs, job state, verifi
 
 **Goal:** make local cache behavior predictable and resource-aware.
 
-### Intelligence
+Hot/cold classification, access frequency, cache pressure, prefetch suggestions, eviction planning, resource-aware transfers, and RAM-aware concurrency. No automatic production eviction.
 
-- hot/cold classification
-- access frequency
-- cache pressure
-- prefetch suggestions
-- cache eviction planning
-- resource-aware transfers
-- RAM-aware concurrency
-
-No automatic eviction of production data.
+**Status at R0:** PRIMITIVES.
 
 ---
 
@@ -612,72 +218,46 @@ No automatic eviction of production data.
 
 **Goal:** expose safe metadata interfaces without changing TelDrive.
 
-Possible interfaces:
+Read-only JSON/IPC metadata surfaces and catalog export/import are optional interfaces. No TelDrive database write access.
 
-- read-only JSON API
-- local IPC
-- filesystem metadata views
-- export/import of catalog metadata
-
-No write access to TelDrive's database.
+**Status at R0:** PRIMITIVES.
 
 ---
 
 # Phase 14 — Media Ecosystem
 
-**Goal:** build optional media-aware workflows around the archive.
+**Goal:** build an operational media-aware workflow around the archive.
 
-Potential integrations:
+Target outcome:
 
-- Jellyfin
-- Plex-compatible metadata
-- subtitle indexing
-- media metadata extraction
-- thumbnails
-- media library views
+```text
+TelDrive corpus → automatic media discovery → media catalog
+→ Jellyfin library exposure → Jellyfin → actual playback
+```
 
-Integrations remain sidecar-owned and must not rewrite production storage unexpectedly.
+**Status at R0:** INCOMPLETE. Jellyfin/media adapters and primitives are not proof of an operational TelDrive-to-playback workflow. R3 owns this reconciliation.
 
 ---
 
 # Phase 15 — Media & Document Intelligence
 
-**Goal:** make stored content more understandable without requiring paid AI services.
+**Goal:** understand stored content using free/local tooling where practical.
 
-Possible local tools:
+Possible tools include OCR, PDF metadata, document classification, local speech-to-text, local embeddings, and local vision. AI remains advisory.
 
-- OCR
-- PDF metadata
-- document classification
-- local speech-to-text
-- local embeddings
-- local vision models where hardware permits
-
-AI remains advisory.
+**Status at R0:** PROVIDER PRIMITIVES. Provider availability and integrated indexing quality must be proven before claiming product completion.
 
 ---
 
 # Phase 16 — Advanced Search
 
-**Goal:** move from filename search toward semantic and content-aware discovery.
-
-Possible layers:
+**Goal:** move from filename search toward content-aware discovery.
 
 ```text
-filename/path
-   ↓
-metadata
-   ↓
-full text
-   ↓
-OCR/transcript
-   ↓
-embeddings
-   ↓
-semantic search
+filename/path → metadata → full text → OCR/transcript → embeddings → semantic search
 ```
 
-Local-first and free-only by default.
+**Status at R0:** INCOMPLETE. Advanced content search is separate from `td search`; R2 unifies the product surface.
 
 ---
 
@@ -685,41 +265,19 @@ Local-first and free-only by default.
 
 **Goal:** add AI assistance without making AI authoritative.
 
-Possible capabilities:
+Natural-language search, archive/organization suggestions, duplicate/anomaly explanation, media classification, and metadata enrichment are advisory only.
 
-- natural-language search
-- archive suggestions
-- organization suggestions
-- duplicate explanation
-- anomaly explanation
-- media classification
-- metadata enrichment
-
-AI must never bypass:
-
-```text
-Policy
-Authorization
-Verification
-Audit
-```
+**Status at R0:** ADVISORY PRIMITIVES.
 
 ---
 
 # Phase 18 — Storage Intelligence
 
-**Goal:** understand storage economics and behavior without requiring paid services.
+**Goal:** understand storage economics and behavior without paid services.
 
-Potential features:
+Growth forecasting, heatmaps, category analysis, reclaim estimates, archive recommendations, and transfer-cost estimation remain advisory.
 
-- growth forecasting
-- storage heatmaps
-- category analysis
-- duplicate reclaim estimates
-- archive recommendations
-- transfer cost estimation
-
-Recommendations are advisory unless explicitly authorized.
+**Status at R0:** ADVISORY.
 
 ---
 
@@ -727,77 +285,88 @@ Recommendations are advisory unless explicitly authorized.
 
 **Goal:** provide durable point-in-time recovery workflows.
 
-Possible implementation:
+Snapshot manifests, incremental snapshots, retention, verification, restore planning/dry-runs, and explicit restore authorization. Restore is high-risk.
 
-- snapshot manifests
-- incremental snapshots
-- retention policies
-- snapshot verification
-- restore planning
-- restore dry-runs
-- explicit restore authorization
-
-Restore must be treated as a high-risk operation.
+**Status at R0:** SNAPSHOT PRIMITIVES.
 
 ---
 
 # Phase 20 — Cross-Project Integrations
 
-**Goal:** allow other engineering projects to consume Lab capabilities safely.
+**Goal:** allow other engineering projects to consume Lab capabilities safely through explicit contracts.
 
-Potential integrations:
+Potential consumers include VAJRA, Alok Engineering Lab, local development environments, datasets, and experiment archives.
 
-- VAJRA
-- Alok Engineering Lab
-- local development environments
-- dataset workflows
-- experiment archives
-
-Integrations use explicit contracts rather than direct production access.
+**Status at R0:** CONTRACTS.
 
 ---
 
 # Phase 21 — Advanced / Experimental
 
-Potential experiments:
+Potential experiments include content-addressable storage, deduplication optimization, intelligent tiering, snapshot compression, distributed workers, remote workers, and advanced local AI orchestration.
 
-- content-addressable storage
-- local deduplication optimization
-- intelligent tiering
-- advanced snapshot compression
-- distributed workers
-- remote worker nodes
-- advanced local AI orchestration
-
-Experimental features remain isolated until proven.
+**Status at R0:** EXPERIMENTAL. Experimental features remain isolated until proven.
 
 ---
 
 # Phase 22 — Optional Storage Control Center
 
-**Goal:** provide an optional local UI over the already-proven control plane.
+**Goal:** provide a local UI over an already-proven control plane.
 
-Possible features:
+Possible surfaces include dashboard, jobs, transfers, archive plans, search, storage analytics, health, audit, and configuration visibility.
 
-- dashboard
-- jobs
-- transfers
-- archive plans
-- search
-- storage analytics
-- health
-- audit history
-- configuration visibility
+**Status at R0:** INCOMPLETE. The current UI/API is primarily a shell with default/empty payloads, not a live control center. R5 owns this reconciliation.
 
-The UI is a client of the control plane, not the authority.
+---
+
+# Reconciliation Program — R0 → R5
+
+The numbered implementation phases above describe capability history and intended dependencies. The following gates reconcile the product before new feature expansion.
+
+```text
+R0 Product Truth
+      ↓
+R1 Corpus Discovery
+      ↓
+R2 Unified TD Search
+      ↓
+R3 Operational Media / OTT
+      ↓
+R4 Durable Execution Reconciliation
+      ↓
+R5 Live Control Center
+```
+
+### R0 — Product Truth
+
+Make roadmap, documentation, code, tests, host gates, CI, and release claims agree with actual evidence. Remove false completion claims, resolve safety/documentation contradictions, consolidate duplicate implementation concepts, and establish evidence-driven CI.
+
+### R1 — Corpus Discovery
+
+Build authoritative, bounded, incremental TelDrive metadata discovery/ingestion into the derived catalog. Preserve provenance and idempotence. Existing TelDrive files must not require manual registration.
+
+### R2 — Unified TD Search
+
+Make `td search` operate over the discovered corpus and unify filename/path, metadata, media metadata, full text, OCR/transcripts, and optional semantic indexes.
+
+### R3 — Operational Media / OTT
+
+Build and verify TelDrive corpus → media discovery → media catalog → Jellyfin library exposure → actual playback using safe Lab-owned/test media.
+
+### R4 — Durable Execution Reconciliation
+
+Unify JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, Lifecycle, Verification, and Audit. Progress and `VERIFYING` must be real persisted execution states, not merely modeled fields.
+
+### R5 — Live Control Center
+
+Wire the control center to live catalog, jobs, transfers, media, search, health, and audit state only after those underlying workflows are operational.
 
 ---
 
 # Global Implementation Gates
 
-Every phase should pass these gates where applicable:
+Every phase/capability must pass the applicable evidence gates:
 
-```text
 1. Design review
 2. Unit tests
 3. Integration tests
@@ -808,52 +377,20 @@ Every phase should pass these gates where applicable:
 8. Audit check
 9. Documentation
 10. Git checkpoint
-```
 
-Never skip safety testing because a feature is "only local."
-
----
-
-# Dependency Order
-
-```text
-Phase 0
-  ↓
-Phase 1
-  ↓
-Phase 2
-  ↓
-Phase 3
-  ↓
-Phase 4
-  ↓
-Phase 5
-  ↓
-Phase 6
-  ↓
-Phase 7
-  ↓
-Phase 8
-  ↓
-Phase 9
-  ↓
-Phase 10
-  ↓
-Phase 11
-  ↓
-Phase 12+
-```
-
-Some later phases can be developed in parallel after their dependencies are stable, but the safety and durability layers should not be bypassed.
+No feature is complete merely because a local happy-path test passes.
 
 ---
 
-# Canonical Product Principle
+# Global Safety / Cost Invariants
 
-TelDrive Lab is not a replacement for TelDrive.
-
-It is the **safe engineering control plane around TelDrive**.
-
-The core principle is:
-
-> **Storage remains authoritative. The Lab makes storage observable, verifiable, automatable, searchable, and intelligent without silently taking ownership of it.**
+- TelDrive remains the storage authority.
+- Existing production storage and database remain outside Lab ownership.
+- No direct TelDrive PostgreSQL writes.
+- No autonomous destructive production cleanup.
+- No silent production mutation.
+- AI/planners/UIs/schedulers are never mutation authority.
+- Mutation requires deterministic policy, explicit authorization, controlled execution, verification, and audit.
+- ₹0/$0 remains mandatory: no paid runtime dependency, paid API, or mandatory remote AI.
+- Optional ecosystems may be unavailable, but adapters must never be described as operational proof.
+- Resource-sensitive operations should be bounded and streaming where practical.
