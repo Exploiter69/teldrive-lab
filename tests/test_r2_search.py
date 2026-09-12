@@ -63,7 +63,8 @@ def test_search_is_read_only_and_rejects_bad_queries(tmp_path):
     page = search.search("a")
     assert page.hits[0].record.path == "a.txt"
     assert catalog.count() == before
-    for query in ("", "limit:0", "limit:501", "min_size:2gb max_size:1gb", "source:NOPE", "sort:bad"):
+    assert search.search("").total == 1
+    for query in ("limit:0", "limit:501", "min_size:2gb max_size:1gb", "source:NOPE", "sort:bad"):
         try:
             search.search(query)
         except (SearchError, ValueError):
