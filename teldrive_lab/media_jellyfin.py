@@ -28,13 +28,13 @@ def discover_media(records:list[FileRecord])->list[MediaCandidate]:
     out=[]
     for r in records:
         k=classify_path(Path(r.path))
-        if k: out.append(MediaCandidate(r.id,r.source_identifier,r.path,k[0],k[1],r.size or 0,r.modified_at,k[2]))
+        if k:out.append(MediaCandidate(r.id,r.source_identifier,r.path,k[0],k[1],r.size or 0,r.modified_at,k[2]))
     return out
 def discover_filesystem(root:Path,*,source="LOCAL_FIXTURE",max_depth=DEFAULT_MAX_DEPTH,max_files=DEFAULT_MAX_FILES)->list[MediaCandidate]:
     out=[]
     for p in iter_files(root,max_depth=max_depth,max_files=max_files):
         k=classify_path(p)
-        if not k: continue
+        if not k:continue
         try:s=p.stat()
         except OSError:continue
         out.append(MediaCandidate(None,source,str(p),k[0],k[1],s.st_size,str(s.st_mtime),k[2]))
@@ -49,18 +49,18 @@ def rclone_mount_command(remote:str,mount_path:Path)->list[str]:
     if not remote or remote.startswith("/"):raise R3Error("R3 TelDrive exposure requires a named rclone remote")
     return ["rclone","mount",remote,str(mount_path),"--read-only","--vfs-cache-mode","off","--dir-cache-time","10s","--poll-interval","30s"]
 def start_rclone_exposure(remote:str,mount_path:Path,*,timeout=20)->MediaExposure:
-    validate_exposure(mount_path); mount_path.mkdir(parents=True,exist_ok=True); proc=subprocess.Popen(rclone_mount_command(remote,mount_path),stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,start_new_session=True); deadline=time.monotonic()+timeout
+    validate_exposure(mount_path);mount_path.mkdir(parents=True,exist_ok=True);proc=subprocess.Popen(rclone_mount_command(remote,mount_path),stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,start_new_session=True);deadline=time.monotonic()+timeout
     while time.monotonic()<deadline:
-        if proc.poll() is not None: raise R3Error(f"rclone mount exited: {(proc.stderr.read() if proc.stderr else '')[-1000:]}")
+        if proc.poll() is not None:raise R3Error(f"rclone mount exited: {(proc.stderr.read() if proc.stderr else '')[-1000:]}")
         if any(mount_path.iterdir()):return MediaExposure(str(mount_path),"RCLONE_READ_ONLY",remote,True,proc.pid)
         time.sleep(.25)
-    os.killpg(proc.pid,signal.SIGTERM); raise R3Error("rclone read-only mount did not become visible before timeout")
+    os.killpg(proc.pid,signal.SIGTERM);raise R3Error("rclone read-only mount did not become visible before timeout")
 def stop_exposure(exposure:MediaExposure):
     if exposure.pid:
         try:os.killpg(exposure.pid,signal.SIGTERM)
         except ProcessLookupError:pass
 def _request(base_url,path,*,method="GET",token=None,payload=None,timeout=10):
-    data=None if payload is None else json.dumps(payload).encode(); headers={"Accept":"application/json","Content-Type":"application/json"}
+    data=None if payload is None else json.dumps(payload).encode();headers={"Accept":"application/json","Content-Type":"application/json"}
     if token:headers["X-Emby-Token"]=token
     req=urllib.request.Request(base_url.rstrip("/")+path,data=data,headers=headers,method=method)
     try:
@@ -93,7 +93,8 @@ def configure_jellyfin(base_url,username="r3-admin",password="r3-pass"):
     return token
 def add_library(base_url,token,name,path,collection_type="music"):
     query=urllib.parse.urlencode({"name":name,"collectionType":collection_type,"paths":path,"refreshLibrary":"true"})
-    try:_request(base_url,"/Library/VirtualFolders?"+query,method="POST",token=token,payload=None)
+    body={"LibraryOptions":{"PathInfos":[{"Path":path}]}}
+    try:_request(base_url,"/Library/VirtualFolders?"+query,method="POST",token=token,payload=body)
     except R3Error as exc:
         if "HTTP 409" not in str(exc):raise
 def refresh_library(base_url,token):_request(base_url,"/Library/Refresh",method="POST",token=token,payload=None)
@@ -102,8 +103,9 @@ def library_items(base_url,token,search_term=""):
     if search_term:query["SearchTerm"]=search_term
     _,data=_request(base_url,"/Items?"+urllib.parse.urlencode(query),token=token);return list(data.get("Items",[])) if isinstance(data,dict) else []
 def find_item(base_url,token,name):
-    for item in library_items(base_url,token,name):
-        if item.get("Name")==name or Path(item.get("Path","")).name==name:return item
+    stem=Path(name).stem
+    for item in library_items(base_url,token,stem):
+        if item.get("Name") in {name,stem} or Path(item.get("Path","")).name in {name,stem} or Path(item.get("Path","")).stem==stem:return item
     return None
 def verify_stream(base_url,token,item_id,timeout=20):
     for endpoint in (f"/Audio/{item_id}/stream?static=true",f"/Items/{item_id}/Download"):
