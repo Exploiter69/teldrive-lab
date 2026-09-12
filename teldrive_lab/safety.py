@@ -6,6 +6,7 @@ operations and refuses mutation of the protected TelDrive production boundary.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -26,31 +27,53 @@ class Operation(str, Enum):
     RECONFIGURE = "reconfigure"
 
 
-MUTATING = frozenset({
-    Operation.TRANSFER,
-    Operation.WRITE,
-    Operation.DELETE,
-    Operation.MOVE,
-    Operation.RENAME,
-    Operation.OVERWRITE,
-    Operation.RECONFIGURE,
-})
+MUTATING = frozenset(
+    {
+        Operation.TRANSFER,
+        Operation.WRITE,
+        Operation.DELETE,
+        Operation.MOVE,
+        Operation.RENAME,
+        Operation.OVERWRITE,
+        Operation.RECONFIGURE,
+    }
+)
 
 # TelDrive production paths are fixed host paths, not paths relative to the
-# process user's HOME. This keeps the safety boundary identical in production,
-# CI, containers, and test environments.
+# process user's HOME. This keeps the built-in safety boundary identical in
+# production, CI, containers, and test environments.
 PRODUCTION_HOME = Path("/home/thakuralok")
-PROTECTED_ROOTS = (
+BUILTIN_PROTECTED_ROOTS = (
     PRODUCTION_HOME / "TelegramRaw",
     PRODUCTION_HOME / "TelegramDrive",
     PRODUCTION_HOME / "teldrive",
     PRODUCTION_HOME / "teldrive-project",
 )
-
-PROTECTED_STATE = (
+BUILTIN_PROTECTED_STATE = (
     PRODUCTION_HOME / "teldrive" / "session.db",
     Path("/run/docker.sock"),
 )
+
+
+def _configured_paths(name: str) -> tuple[Path, ...]:
+    """Parse an additive path-list environment variable.
+
+    Empty entries are ignored. Invalid/empty configuration never weakens the
+    built-in boundary. Paths are normalized only when evaluated by the safety
+    checks, so this helper remains side-effect free.
+    """
+    raw = os.environ.get(name, "")
+    return tuple(Path(item).expanduser() for item in raw.split(os.pathsep) if item.strip())
+
+
+def protected_roots() -> tuple[Path, ...]:
+    """Return built-in plus operator-configured protected roots."""
+    return BUILTIN_PROTECTED_ROOTS + _configured_paths("TELDRIVE_LAB_PROTECTED_ROOTS")
+
+
+def protected_state() -> tuple[Path, ...]:
+    """Return built-in plus operator-configured protected state paths."""
+    return BUILTIN_PROTECTED_STATE + _configured_paths("TELDRIVE_LAB_PROTECTED_STATE")
 
 
 @dataclass(frozen=True)
@@ -102,8 +125,8 @@ def _resolve(path: str | Path) -> Path:
 def is_protected(path: str | Path) -> bool:
     """Return True if *path* is inside a protected production root/state path."""
     candidate = _resolve(path)
-    for root in (*PROTECTED_ROOTS, *PROTECTED_STATE):
-        root = root.resolve(strict=False)
+    for root in (*protected_roots(), *protected_state()):
+        root = _resolve(root)
         if candidate == root or root in candidate.parents:
             return True
     return False
