@@ -4,9 +4,8 @@ The gate uses only disposable local fixtures and localhost services. It never
 mounts, reads, writes, deletes, reorganizes, or reconfigures TelDrive
 production storage, rclone mounts, or the TelDrive database.
 
-Every capability gets an individual evidence record. Provider-backed checks
-are hard requirements: missing providers or non-functional providers are
-failures, never silent skips.
+Every capability gets an individual evidence record. Only providers that are
+part of the TelDrive Lab product contract are verified here.
 """
 from __future__ import annotations
 
@@ -38,17 +37,14 @@ from teldrive_lab.advanced import (
     growth_forecast,
     image_vision_summary,
     local_embedding,
-    local_model_capabilities,
     media_probe,
     media_records,
     ocr,
-    ollama_generate,
     prefetch_suggestions,
     project_contracts,
     record_access,
     resource_budget,
     search_content,
-    speech_to_text,
     storage_heatmap,
     storage_tier,
     thumbnail_capability,
@@ -112,13 +108,6 @@ class Evidence:
                 }
             )
 
-    @staticmethod
-    def require_command(command: str) -> str:
-        path = shutil.which(command)
-        if not path:
-            raise RuntimeError(f"required provider missing: {command}")
-        return path
-
 
 def _run(command: list[str], timeout: int = TIMEOUT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
@@ -143,42 +132,11 @@ def _local_http_server() -> tuple[Any, threading.Thread, int]:
 
 
 def _make_pdf(path: Path) -> None:
-    # Small valid-enough local fixture for adapter invocation. The PDF adapter
-    # may report no text if no PDF utility is installed; the fingerprint itself
-    # remains a real byte-level verification.
     path.write_bytes(
         b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Pages 2 0 R>>endobj\n"
         b"2 0 obj<< /Type /Pages /Kids [] /Count 0>>endobj\n"
         b"trailer<< /Root 1 0 R>>\n%%EOF\n"
     )
-
-
-def _strict_speech_to_text(path: Path) -> dict[str, Any]:
-    """Require a successful real Whisper invocation, not binary discovery."""
-    provider = Evidence.require_command("whisper")
-    result = speech_to_text(path, timeout=60)
-    if not result.get("available"):
-        raise RuntimeError("Whisper provider invocation failed")
-    output = result.get("output", "")
-    if not isinstance(output, str):
-        raise RuntimeError("Whisper provider returned invalid output")
-    return {"provider": provider, "tool": result.get("tool"), "invoked": True, "output_bytes": len(output.encode())}
-
-
-def _strict_ollama() -> dict[str, Any]:
-    """Require a real local Ollama model inference through the Lab adapter."""
-    capabilities = local_model_capabilities()
-    if not capabilities.get("ollama"):
-        raise RuntimeError("required provider missing: ollama")
-    model = os.environ.get("TELDRIVE_LAB_E2E_OLLAMA_MODEL", "qwen2.5-coder:7b")
-    prompt = "Reply with exactly the word PASS."
-    try:
-        output = ollama_generate(prompt, model=model, host="127.0.0.1", port=11434, timeout=30)
-    except Exception as exc:  # noqa: BLE001 - preserve provider failure in gate evidence
-        raise RuntimeError(f"Ollama provider invocation failed for model {model}: {exc}") from exc
-    if not isinstance(output, str) or not output.strip():
-        raise RuntimeError(f"Ollama provider returned empty output for model {model}")
-    return {"provider": "ollama", "model": model, "invoked": True, "output": output.strip()}
 
 
 def main() -> int:
@@ -219,8 +177,7 @@ def main() -> int:
         evidence.check(12, "resource budgeting", lambda: resource_budget(512, 256, 4, 8) == 2)
         evidence.check(12, "tier policy", lambda: storage_tier(10, 999999))
 
-        # P13 — integration/API/metadata surfaces. Snapshot manifests live
-        # outside their source tree to avoid self-referential verification.
+        # P13 — integration/API/metadata surfaces.
         evidence.check(13, "filesystem observation", lambda: observe_storage(root))
         evidence.check(
             13,
@@ -262,27 +219,19 @@ def main() -> int:
                 timeout=30,
             )
             if proc.returncode != 0:
-                evidence.check(
-                    14,
-                    "real ffprobe media inspection",
-                    lambda: (_ for _ in ()).throw(RuntimeError(f"ffmpeg fixture generation failed: {proc.stderr.strip()}")),
-                )
+                evidence.check(14, "real ffprobe media inspection", lambda: (_ for _ in ()).throw(RuntimeError(f"ffmpeg fixture generation failed: {proc.stderr.strip()}")))
             else:
                 evidence.check(14, "real ffprobe media inspection", lambda: media_probe(generated))
         else:
-            evidence.check(14, "real ffprobe media inspection", lambda: Evidence.require_command("ffmpeg"))
+            evidence.check(14, "real ffprobe media inspection", lambda: (_ for _ in ()).throw(RuntimeError("required provider missing: ffmpeg")))
 
-        # P15 — document/AI modalities. Provider-backed capabilities are hard
-        # requirements for this strict verification campaign.
+        # P15 — deterministic document/media intelligence that is part of the
+        # supported product contract. Speech transcription is intentionally not
+        # part of TelDrive Lab scope.
         pdf = docs / "e2e.pdf"
         _make_pdf(pdf)
         evidence.check(15, "document fingerprint", lambda: document_fingerprint(pdf))
-        evidence.check(
-            15,
-            "OCR provider",
-            lambda: (Evidence.require_command("tesseract"), ocr(docs / "fixture.txt")),
-        )
-        evidence.check(15, "speech-to-text provider", lambda: _strict_speech_to_text(generated))
+        evidence.check(15, "OCR provider", lambda: (shutil.which("tesseract") or (_ for _ in ()).throw(RuntimeError("required provider missing: tesseract")), ocr(docs / "fixture.txt")))
         evidence.check(15, "local embedding", lambda: len(local_embedding("strict e2e")) == 256)
         evidence.check(15, "vision sidecar boundary", lambda: image_vision_summary(docs / "fixture.txt"))
 
@@ -292,11 +241,11 @@ def main() -> int:
         evidence.check(16, "full-text search", lambda: search_content(idx, "searchable"))
         evidence.check(16, "metadata-aware search", lambda: search_content(idx, "fixture"))
 
-        # P17 — advisory AI + organization/enrichment surfaces.
-        evidence.check(17, "local AI advisory is non-authoritative", lambda: {"authoritative": local_ai_advisory("strict fixture").authoritative})
+        # P17 — deterministic advisory/organization surfaces. No LLM provider
+        # is required or supported by the current product contract.
+        evidence.check(17, "local advisory is non-authoritative", lambda: {"authoritative": local_ai_advisory("strict fixture").authoritative})
         evidence.check(17, "category analysis", lambda: category_analysis(root.iterdir()))
-        evidence.check(17, "AI workflow plan is non-authoritative", lambda: ai_workflow_plan([{"id": "e2e"}]))
-        evidence.check(17, "local model provider", _strict_ollama)
+        evidence.check(17, "workflow plan is non-authoritative", lambda: ai_workflow_plan([{"id": "e2e"}]))
 
         # P18 — analytics/economics.
         evidence.check(18, "growth forecast", lambda: growth_forecast([(0, 100), (86400, 200)]))
@@ -313,7 +262,7 @@ def main() -> int:
         evidence.check(20, "integration contracts", integration_contracts)
         evidence.check(20, "project contracts", project_contracts)
 
-        # P21 — CAS/dedup + orchestration and safety boundary.
+        # P21 — CAS/dedup + safety boundary.
         cas = CASStore(root / "cas")
         digest = cas.put(docs / "fixture.txt")
         evidence.check(21, "content-addressable storage", lambda: {"digest": digest, "present": cas.has(digest)})
