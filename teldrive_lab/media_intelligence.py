@@ -1,6 +1,7 @@
-"""Optional local media/document providers used by Phases 14-15.
+"""Optional local media/document providers used by the supported media/document scope.
 
 Providers write only to caller-selected Lab-owned destinations and use local tools.
+No speech-to-text or local-LLM provider is part of this module.
 """
 from __future__ import annotations
 
@@ -26,25 +27,25 @@ def generate_thumbnail(source: Path, destination: Path, *, timestamp: str = "00:
 
 
 def classify_document(path: Path) -> dict[str, Any]:
-    ext=path.suffix.lower()
-    if ext in {".pdf"}: category="document/pdf"
-    elif ext in {".md",".txt",".rst",".log"}: category="document/text"
-    elif ext in {".csv",".tsv",".json",".yaml",".yml"}: category="dataset/structured"
-    elif ext in {".py",".js",".ts",".go",".rs",".java",".c",".cpp",".h"}: category="source/code"
-    elif ext in {".mp4",".mkv",".webm",".mov",".avi"}: category="media/video"
-    elif ext in {".mp3",".flac",".wav",".m4a",".ogg",".opus"}: category="media/audio"
-    elif ext in {".jpg",".jpeg",".png",".webp",".gif"}: category="media/image"
-    else: category="unknown"
-    return {"path":str(path),"category":category,"confidence":1.0 if category!="unknown" else 0.0,"authoritative":False}
+    ext = path.suffix.lower()
+    if ext in {".pdf"}: category = "document/pdf"
+    elif ext in {".md", ".txt", ".rst", ".log"}: category = "document/text"
+    elif ext in {".csv", ".tsv", ".json", ".yaml", ".yml"}: category = "dataset/structured"
+    elif ext in {".py", ".js", ".ts", ".go", ".rs", ".java", ".c", ".cpp", ".h"}: category = "source/code"
+    elif ext in {".mp4", ".mkv", ".webm", ".mov", ".avi"}: category = "media/video"
+    elif ext in {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".opus"}: category = "media/audio"
+    elif ext in {".jpg", ".jpeg", ".png", ".webp", ".gif"}: category = "media/image"
+    else: category = "unknown"
+    return {"path": str(path), "category": category, "confidence": 1.0 if category != "unknown" else 0.0, "authoritative": False}
 
 
 def vision_model_capability() -> dict[str, Any]:
-    """Advertise local-only vision providers without requiring one."""
-    return {"ollama": bool(shutil.which("ollama")), "llama_cpp": bool(shutil.which("llama-cli")), "remote": False,
-            "writes_production": False, "authority": "advisory"}
+    """Report that no model-backed vision provider is required by the Lab."""
+    return {"providers": [], "remote": False, "writes_production": False, "authority": "advisory"}
 
 
 def perceptual_fingerprint(path: Path, sample_bytes: int = 1_048_576) -> str:
     """Dependency-free stable content fingerprint useful for local visual grouping."""
-    with path.open("rb") as f: data=f.read(sample_bytes)
+    with path.open("rb") as f:
+        data = f.read(sample_bytes)
     return hashlib.sha256(data).hexdigest()
