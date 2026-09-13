@@ -119,8 +119,8 @@ class AuditedJobStore:
         )
         return job
 
-    def recover_expired_leases(self) -> int:
-        count = self.jobs.recover_expired_leases()
+    def recover_expired_leases(self, reconciler=None) -> int:
+        count = self.jobs.recover_expired_leases(reconciler=reconciler)
         if count:
             conn = open_audit(self.audit_path)
             try:

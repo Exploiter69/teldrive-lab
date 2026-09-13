@@ -52,6 +52,7 @@ class Job:
     worker_id: str | None
     lease_until: float | None
     parent_job_id: str | None
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,19 +99,30 @@ class JobStore:
                 max_attempts INTEGER NOT NULL DEFAULT 3, retry_at REAL, source TEXT,
                 destination TEXT, path TEXT, size INTEGER, checksum TEXT,
                 progress REAL NOT NULL DEFAULT 0, error_code TEXT, error_message TEXT,
-                worker_id TEXT, lease_until REAL, parent_job_id TEXT REFERENCES jobs(job_id)
+                worker_id TEXT, lease_until REAL, parent_job_id TEXT REFERENCES jobs(job_id),
+                idempotency_key TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_jobs_claim ON jobs(state, retry_at, priority, created);
             CREATE INDEX IF NOT EXISTS idx_jobs_worker ON jobs(worker_id, lease_until);
             CREATE INDEX IF NOT EXISTS idx_jobs_parent ON jobs(parent_job_id);
             """)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "idempotency_key" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN idempotency_key TEXT")
+                rows = conn.execute("SELECT job_id,type,source,destination,path,checksum FROM jobs WHERE idempotency_key IS NULL").fetchall()
+                for row in rows:
+                    key = self._idempotency_key(JobType(row[1]), row[2], row[3], row[4], row[5])
+                    conn.execute("UPDATE jobs SET idempotency_key=? WHERE job_id=?", (key, row[0]))
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_idempotency ON jobs(idempotency_key)")
 
     def enqueue(self, job_type: JobType, *, priority: str = "NORMAL", max_attempts: int = 3,
                 source: str | None = None, destination: str | None = None, path: str | None = None,
-                checksum: str | None = None, parent_job_id: str | None = None, job_id: str | None = None) -> Job:
+                checksum: str | None = None, parent_job_id: str | None = None, job_id: str | None = None,
+                idempotency_key: str | None = None) -> Job:
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
         now = time.time(); job_id = job_id or uuid.uuid4().hex
+        idempotency_key = idempotency_key or self._idempotency_key(job_type, source, destination, path, checksum)
         with self._connect() as conn:
             if parent_job_id is not None:
                 parent = conn.execute("SELECT state FROM jobs WHERE job_id=?", (parent_job_id,)).fetchone()
@@ -119,10 +131,10 @@ class JobStore:
                 if parent["state"] in (JobState.COMPLETED.value, JobState.FAILED.value, JobState.CANCELLED.value):
                     raise ValueError("cannot add a child to a terminal parent")
             conn.execute("""INSERT INTO jobs
-                (job_id,type,state,priority,created,updated,max_attempts,source,destination,path,checksum,parent_job_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (job_id,type,state,priority,created,updated,max_attempts,source,destination,path,checksum,parent_job_id,idempotency_key)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                          (job_id, job_type.value, JobState.QUEUED.value, priority, now, now, max_attempts,
-                          source, destination, path, checksum, parent_job_id))
+                          source, destination, path, checksum, parent_job_id, idempotency_key))
         return self.get(job_id)
 
     def get(self, job_id: str) -> Job:
@@ -214,10 +226,43 @@ class JobStore:
         if not changed: raise ValueError("job cannot be cancelled from its current state")
         return self.get(job_id)
 
-    def recover_expired_leases(self) -> int:
-        now = time.time()
+    def expired_running_jobs(self, *, now: float | None = None) -> list[Job]:
+        now = time.time() if now is None else now
         with self._connect() as conn:
-            return conn.execute("UPDATE jobs SET state='QUEUED', worker_id=NULL, lease_until=NULL, retry_at=?, updated=? WHERE state='RUNNING' AND lease_until IS NOT NULL AND lease_until < ?", (now, now, now)).rowcount
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE state='RUNNING' AND lease_until IS NOT NULL AND lease_until < ? ORDER BY created, job_id",
+                (now,),
+            ).fetchall()
+        return [self._row(row) for row in rows]
+
+    def recover_expired_leases(self, reconciler=None) -> int:
+        """Recover expired jobs only after external-state reconciliation."""
+        if reconciler is None:
+            return 0
+        now = time.time()
+        recovered = 0
+        for job in self.expired_running_jobs(now=now):
+            decision = reconciler(job)
+            action = getattr(decision, "action", None)
+            reason = getattr(decision, "reason", "recovery decision missing reason")
+            with self._connect() as conn:
+                if action == "COMPLETE":
+                    changed = conn.execute(
+                        "UPDATE jobs SET state='COMPLETED', progress=1, completed=?, updated=?, worker_id=NULL, lease_until=NULL WHERE job_id=? AND state='RUNNING' AND lease_until < ?",
+                        (now, now, job.job_id, now),
+                    ).rowcount
+                elif action == "REQUEUE":
+                    changed = conn.execute(
+                        "UPDATE jobs SET state='QUEUED', retry_at=?, updated=?, worker_id=NULL, lease_until=NULL WHERE job_id=? AND state='RUNNING' AND lease_until < ?",
+                        (now, now, job.job_id, now),
+                    ).rowcount
+                else:
+                    changed = conn.execute(
+                        "UPDATE jobs SET state='FAILED', attempts=attempts+1, error_code='RECOVERY_RECONCILIATION', error_message=?, updated=?, worker_id=NULL, lease_until=NULL WHERE job_id=? AND state='RUNNING' AND lease_until < ?",
+                        (reason, now, job.job_id, now),
+                    ).rowcount
+                recovered += changed
+        return recovered
 
     def retry(self, job_id: str, worker_id: str, *, error_code: str, error_message: str, delay_seconds: float) -> Job:
         if delay_seconds < 0: raise ValueError("delay_seconds must be non-negative")
@@ -232,5 +277,11 @@ class JobStore:
         return self.get(job_id)
 
     @staticmethod
+    def _idempotency_key(job_type: JobType, source: str | None, destination: str | None, path: str | None, checksum: str | None) -> str:
+        import hashlib
+        payload = "\x1f".join([job_type.value, source or "", destination or "", path or "", checksum or ""])
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
     def _row(row: sqlite3.Row) -> Job:
-        return Job(job_id=row["job_id"], type=JobType(row["type"]), state=JobState(row["state"]), priority=row["priority"], attempts=row["attempts"], max_attempts=row["max_attempts"], retry_at=row["retry_at"], source=row["source"], destination=row["destination"], path=row["path"], checksum=row["checksum"], progress=row["progress"], error_code=row["error_code"], error_message=row["error_message"], worker_id=row["worker_id"], lease_until=row["lease_until"], parent_job_id=row["parent_job_id"])
+        return Job(job_id=row["job_id"], type=JobType(row["type"]), state=JobState(row["state"]), priority=row["priority"], attempts=row["attempts"], max_attempts=row["max_attempts"], retry_at=row["retry_at"], source=row["source"], destination=row["destination"], path=row["path"], checksum=row["checksum"], progress=row["progress"], error_code=row["error_code"], error_message=row["error_message"], worker_id=row["worker_id"], lease_until=row["lease_until"], parent_job_id=row["parent_job_id"], idempotency_key=row["idempotency_key"] if "idempotency_key" in row.keys() else None)

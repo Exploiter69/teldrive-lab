@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,7 +23,7 @@ def test_enqueue_claim_complete_survives_reopen(tmp_path: Path) -> None:
     assert completed.progress == 1
 
 
-def test_expired_lease_is_requeued(tmp_path: Path) -> None:
+def test_expired_lease_requires_reconciliation_before_requeue(tmp_path: Path) -> None:
     store = JobStore(tmp_path / "jobs.db")
     job = store.enqueue(JobType.VERIFY)
     claimed = store.claim("dead-worker", lease_seconds=0.01)
@@ -30,7 +31,11 @@ def test_expired_lease_is_requeued(tmp_path: Path) -> None:
 
     import time
     time.sleep(0.03)
-    assert store.recover_expired_leases() == 1
+    assert store.recover_expired_leases() == 0
+    assert store.get(job.job_id).state is JobState.RUNNING
+
+    decision = SimpleNamespace(action="REQUEUE", reason="no completed side effect observed")
+    assert store.recover_expired_leases(reconciler=lambda _job: decision) == 1
     recovered = store.get(job.job_id)
     assert recovered.state is JobState.QUEUED
     assert recovered.worker_id is None
