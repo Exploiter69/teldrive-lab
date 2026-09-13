@@ -53,7 +53,7 @@ Optional external providers may remain unavailable on a host without making the 
 |---|---|---|
 | 0 | COMPLETE | Foundation and separation are established. |
 | 1 | PARTIAL | Health/backup/regression coverage is incomplete. |
-| 2 | PARTIAL | Catalog exists, but authoritative TelDrive corpus discovery/ingestion is incomplete. |
+| 2 | PARTIAL | Catalog exists, but authoritative TelDrive corpus discovery/ingestion is incomplete. R1 supplies the missing path. |
 | 3 | FOUNDATION COMPLETE | Durable JobStore/lease/retry primitives exist, but the full executor model is not complete. |
 | 4 | PARTIAL | Local transfer is proven; rclone is an adapter/dry-run boundary rather than a complete backend. |
 | 5 | PARTIAL | Deterministic planner/executor exists, but normal durable workflow integration is incomplete. |
@@ -152,6 +152,8 @@ An integration class, HTTP adapter, or media scanner alone is not sufficient evi
 ### R1 — Corpus Discovery
 
 Deliver an authoritative, bounded, incremental TelDrive metadata discovery/ingestion path into the existing derived catalog. Preserve provenance and make repeated scans idempotent.
+
+**R1 completion evidence:** `RcloneTelDriveSource` now performs bounded recursive metadata discovery through the existing TelDrive-facing rclone remote using only `rclone lsf`. Observations are upserted into the Lab-owned catalog with stable provenance, repeated scans are idempotent, and stale observations are reported without deletion. The operator entry point is `scripts/discover_teldrive.py`. Isolated fake-rclone tests and `scripts/r1_corpus_discovery_gate.py` verify the safety boundary. No production TelDrive/rclone connection is used in CI.
 
 ### R2 — Unified TD Search
 

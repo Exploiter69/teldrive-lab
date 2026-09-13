@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,6 +21,9 @@ jobs:
       - run: python -m pip install -e .
       - run: python -m pytest
       - run: PYTHONPATH="$PWD" python scripts/r0_product_truth_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/r1_corpus_discovery_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/r2_unified_search_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/r3_media_jellyfin_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase5_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase6_host_gate.py
