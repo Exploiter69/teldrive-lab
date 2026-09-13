@@ -176,6 +176,46 @@ class JobStore:
         if not changed: raise ValueError("job is not owned by worker or is not running")
         return self.get(job_id)
 
+    def update_progress(self, job_id: str, worker_id: str, progress: float) -> Job:
+        """Persist bounded execution progress owned by the active worker."""
+        if not 0 <= progress <= 1:
+            raise ValueError("progress must be between 0 and 1")
+        now = time.time()
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE jobs SET progress=?, updated=? WHERE job_id=? AND worker_id=? AND state='RUNNING'",
+                (progress, now, job_id, worker_id),
+            ).rowcount
+        if not changed:
+            raise ValueError("job is not owned by this worker or is not running")
+        return self.get(job_id)
+
+    def begin_verification(self, job_id: str, worker_id: str) -> Job:
+        """Persist the execution/verification boundary before terminal completion."""
+        now = time.time()
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE jobs SET state='VERIFYING', progress=MIN(progress,0.999999), updated=? "
+                "WHERE job_id=? AND worker_id=? AND state='RUNNING'",
+                (now, job_id, worker_id),
+            ).rowcount
+        if not changed:
+            raise ValueError("job cannot enter VERIFYING by this worker")
+        return self.get(job_id)
+
+    def complete_verification(self, job_id: str, worker_id: str) -> Job:
+        """Commit a verified job from the persisted VERIFYING state."""
+        now = time.time()
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE jobs SET state='COMPLETED', progress=1, completed=?, updated=?, "
+                "lease_until=NULL, worker_id=NULL WHERE job_id=? AND worker_id=? AND state='VERIFYING'",
+                (now, now, job_id, worker_id),
+            ).rowcount
+        if not changed:
+            raise ValueError("job cannot complete verification by this worker")
+        return self.get(job_id)
+
     def pause(self, job_id: str, worker_id: str | None = None) -> Job:
         now = time.time()
         with self._connect() as conn:
@@ -203,27 +243,27 @@ class JobStore:
     def fail(self, job_id: str, worker_id: str, *, error_code: str, error_message: str) -> Job:
         now = time.time()
         with self._connect() as conn:
-            changed = conn.execute("UPDATE jobs SET state='FAILED', attempts=attempts+1, error_code=?, error_message=?, updated=?, lease_until=NULL, worker_id=NULL WHERE job_id=? AND worker_id=? AND state='RUNNING'", (error_code, error_message, now, job_id, worker_id)).rowcount
+            changed = conn.execute("UPDATE jobs SET state='FAILED', attempts=attempts+1, error_code=?, error_message=?, updated=?, lease_until=NULL, worker_id=NULL WHERE job_id=? AND worker_id=? AND state IN ('RUNNING','VERIFYING')", (error_code, error_message, now, job_id, worker_id)).rowcount
         if not changed: raise ValueError("job cannot be failed by this worker")
         return self.get(job_id)
 
     def cancel(self, job_id: str) -> Job:
         now = time.time()
         with self._connect() as conn:
-            changed = conn.execute("UPDATE jobs SET state='CANCELLED', updated=?, lease_until=NULL, worker_id=NULL WHERE job_id=? AND state IN ('QUEUED','RUNNING','PAUSED')", (now, job_id)).rowcount
+            changed = conn.execute("UPDATE jobs SET state='CANCELLED', updated=?, lease_until=NULL, worker_id=NULL WHERE job_id=? AND state IN ('QUEUED','RUNNING','PAUSED','VERIFYING')", (now, job_id)).rowcount
         if not changed: raise ValueError("job cannot be cancelled from its current state")
         return self.get(job_id)
 
     def recover_expired_leases(self) -> int:
         now = time.time()
         with self._connect() as conn:
-            return conn.execute("UPDATE jobs SET state='QUEUED', worker_id=NULL, lease_until=NULL, retry_at=?, updated=? WHERE state='RUNNING' AND lease_until IS NOT NULL AND lease_until < ?", (now, now, now)).rowcount
+            return conn.execute("UPDATE jobs SET state='QUEUED', worker_id=NULL, lease_until=NULL, retry_at=?, updated=? WHERE state IN ('RUNNING','VERIFYING') AND lease_until IS NOT NULL AND lease_until < ?", (now, now, now)).rowcount
 
     def retry(self, job_id: str, worker_id: str, *, error_code: str, error_message: str, delay_seconds: float) -> Job:
         if delay_seconds < 0: raise ValueError("delay_seconds must be non-negative")
         now = time.time()
         with self._connect() as conn:
-            row = conn.execute("SELECT attempts,max_attempts FROM jobs WHERE job_id=? AND worker_id=? AND state='RUNNING'", (job_id, worker_id)).fetchone()
+            row = conn.execute("SELECT attempts,max_attempts FROM jobs WHERE job_id=? AND worker_id=? AND state IN ('RUNNING','VERIFYING')", (job_id, worker_id)).fetchone()
             if row is None: raise ValueError("job is not owned by this worker or is not running")
             attempts = row["attempts"] + 1
             state = JobState.FAILED.value if attempts >= row["max_attempts"] else JobState.QUEUED.value
