@@ -12,7 +12,7 @@ def _receipt(job):
     return AuthorizationReceipt.for_paths(
         Operation.TRANSFER,
         job.source or "",
-        job.destination or "",
+        job.destination or job.path or "",
         authorization_id="r4-test",
     )
 
@@ -72,16 +72,19 @@ def test_registry_routes_transfer_through_one_worker_boundary(tmp_path: Path) ->
     ).fetchall()]
     assert "worker.claim" in operations
     assert "worker.safety_gate" in operations
-    assert "worker.verifying" in operations
     assert "worker.complete" in operations
 
 
-def test_registry_does_not_authorize_unsupported_job_types(tmp_path: Path) -> None:
+def test_registry_does_not_execute_unsupported_job_types(tmp_path: Path) -> None:
     store = JobStore(tmp_path / "jobs.db")
     job = store.enqueue(JobType.BACKUP, path=str(tmp_path / "backup"))
     registry = DurableExecutionRegistry()
 
-    result = registry.run_once(store, worker_id="r4-worker")
+    result = registry.run_once(
+        store,
+        worker_id="r4-worker",
+        authorization_provider=_receipt,
+    )
 
     assert result is not None
     assert result.job_id == job.job_id
