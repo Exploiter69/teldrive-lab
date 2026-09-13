@@ -1,6 +1,6 @@
 """R3 media discovery, read-only exposure, and real Jellyfin verification."""
 from __future__ import annotations
-import json,os,shutil,signal,subprocess,time,urllib.error,urllib.parse,urllib.request,wave
+import json,os,secrets,shutil,signal,subprocess,time,urllib.error,urllib.parse,urllib.request,wave
 from dataclasses import dataclass,asdict
 from pathlib import Path
 from .models import FileRecord
@@ -87,13 +87,14 @@ def _startup_request_with_retry(base_url,path,*,method="GET",payload=None,timeou
   except R3Error as exc:
    if "HTTP 503" not in str(exc) or time.monotonic()>=deadline:raise
    time.sleep(min(1.0,max(0.0,deadline-time.monotonic())))
-def configure_jellyfin(base_url,username="r3-admin",password="R3-Gate-2026-Disposable-Strong-Password-9X"):
+def configure_jellyfin(base_url,username="r3-admin",password=None):
+ password=password or secrets.token_urlsafe(32)
  _startup_request_with_retry(base_url,"/Startup/User")
  for path,payload in [("/Startup/Configuration",{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}),("/Startup/User",{"Name":username,"Password":password}),("/Startup/RemoteAccess",{"EnableRemoteAccess":False,"EnableAutomaticPortMapping":False}),("/Startup/Complete",{})]:
   try:_startup_request_with_retry(base_url,path,method="POST",payload=payload)
   except R3Error as exc:
    if "HTTP 401" not in str(exc) and "HTTP 400" not in str(exc):raise
- _,auth_result=_startup_request_with_retry(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password},timeout=10,retry_timeout=30)
+ _,auth_result=_startup_request_with_retry(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password},timeout=10,retry_timeout=90)
  token=auth_result.get("AccessToken") if isinstance(auth_result,dict) else None
  if not token:raise R3Error("Jellyfin authentication returned no access token")
  return token
