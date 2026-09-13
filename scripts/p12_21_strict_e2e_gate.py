@@ -1,13 +1,11 @@
 """Strict independent E2E verification for optional Phases 12-21.
 
-This gate deliberately targets disposable local state and localhost-only
-services. It does not mount, read, write, delete, reorganize, or reconfigure
-TelDrive production storage, rclone mounts, or the TelDrive database.
+The gate uses only disposable local fixtures and localhost services. It never
+mounts, reads, writes, deletes, reorganizes, or reconfigures TelDrive
+production storage, rclone mounts, or the TelDrive database.
 
-Unlike the consolidated roadmap gate, every capability exercised here gets an
-individual evidence record. External/local providers are REQUIRED when the
-capability claims provider-backed E2E verification; missing providers are a
-hard failure, not a silent skip.
+Every capability gets an individual evidence record. Provider-backed checks
+are hard requirements: missing providers are failures, never silent skips.
 """
 from __future__ import annotations
 
@@ -17,14 +15,12 @@ import http.client
 import json
 import os
 import shutil
-import socket
 import subprocess
 import tempfile
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
 
 from teldrive_lab.advanced import (
     CASStore,
@@ -93,10 +89,10 @@ class Evidence:
                 "error": f"{type(exc).__name__}: {exc}",
             })
 
-    def require_command(self, phase: int, capability: str, command: str) -> str:
+    @staticmethod
+    def require_command(command: str) -> str:
         path = shutil.which(command)
         if not path:
-            self.records.append({"phase": phase, "capability": capability, "status": "FAIL", "error": f"required provider missing: {command}"})
             raise RuntimeError(f"required provider missing: {command}")
         return path
 
@@ -109,7 +105,8 @@ def _http_json(port: int, method: str, path: str) -> tuple[int, dict[str, Any]]:
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     conn.request(method, path)
     response = conn.getresponse()
-    payload = json.loads(response.read().decode()) if response.getheader("Content-Type", "").startswith("application/json") else {}
+    body = response.read()
+    payload = json.loads(body.decode()) if response.getheader("Content-Type", "").startswith("application/json") else {}
     return response.status, payload
 
 
@@ -122,31 +119,47 @@ def _local_http_server() -> tuple[Any, threading.Thread, int]:
     return server, thread, int(server.server_address[1])
 
 
+def _make_pdf(path: Path) -> None:
+    # Small valid-enough local fixture for adapter invocation. The PDF adapter
+    # may report no text if no PDF utility is installed; the fingerprint itself
+    # remains a real byte-level verification.
+    path.write_bytes(
+        b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Pages 2 0 R>>endobj\n"
+        b"2 0 obj<< /Type /Pages /Kids [] /Count 0>>endobj\n"
+        b"trailer<< /Root 1 0 R>>\n%%EOF\n"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--evidence", type=Path, default=None, help="write JSON evidence report")
     args = parser.parse_args()
-
     evidence = Evidence()
-    failures_before = 0
 
-    # Safety is itself evidence: the strict gate must prove it before touching
-    # any disposable fixture.
-    evidence.check(12, "safety boundary", lambda: validate_extended_safety())
-    evidence.check(21, "advanced safety boundary", lambda: __import__("teldrive_lab.advanced", fromlist=["extended_safety"]).extended_safety())
+    evidence.check(12, "safety boundary", validate_extended_safety)
+    evidence.check(
+        21,
+        "advanced safety boundary",
+        lambda: __import__("teldrive_lab.advanced", fromlist=["extended_safety"]).extended_safety(),
+    )
 
     with tempfile.TemporaryDirectory(prefix="teldrive-lab-p12-21-e2e-") as raw:
         root = Path(raw)
-        (root / "docs").mkdir()
-        (root / "media").mkdir()
-        (root / "docs" / "fixture.txt").write_text("TelDrive Lab strict E2E fixture for search and metadata.\n", encoding="utf-8")
-        (root / "docs" / "fixture.md").write_text("# Strict E2E\nsearchable engineering fixture\n", encoding="utf-8")
-        (root / "media" / "sample.mp4").write_bytes(b"not-a-real-video")
+        docs = root / "docs"
+        media = root / "media"
+        docs.mkdir()
+        media.mkdir()
+        (docs / "fixture.txt").write_text(
+            "TelDrive Lab strict E2E fixture for search and metadata.\n", encoding="utf-8"
+        )
+        (docs / "fixture.md").write_text(
+            "# Strict E2E\nsearchable engineering fixture\n", encoding="utf-8"
+        )
 
         # P12 — storage/cache intelligence.
         db = root / "access.db"
         for _ in range(10):
-            record_access(db, str(root / "docs" / "fixture.txt"))
+            record_access(db, str(docs / "fixture.txt"))
         evidence.check(12, "access frequency", lambda: access_frequency(db))
         heat = storage_heatmap(root, db)
         evidence.check(12, "hot/warm/cold classification", lambda: {"hot": sum(h.tier == "hot" for h in heat), "items": len(heat)})
@@ -155,10 +168,20 @@ def main() -> int:
         evidence.check(12, "resource budgeting", lambda: resource_budget(512, 256, 4, 8) == 2)
         evidence.check(12, "tier policy", lambda: storage_tier(10, 999999))
 
-        # P13 — integration/API/metadata surfaces.
+        # P13 — integration/API/metadata surfaces. Snapshot manifests live
+        # outside their source tree to avoid self-referential verification.
         evidence.check(13, "filesystem observation", lambda: observe_storage(root))
-        evidence.check(13, "metadata export/import", lambda: (export_metadata([{"name": "fixture.txt"}], root / "metadata.json"), (root / "metadata.json").exists()))
-        evidence.check(13, "snapshot manifest", lambda: (create_snapshot_manifest(root, root / "manifest.json"), verify_snapshot_manifest(root / "manifest.json", root)))
+        evidence.check(
+            13,
+            "metadata export/import",
+            lambda: (export_metadata([{"name": "fixture.txt"}], root / "metadata.json"), (root / "metadata.json").exists()),
+        )
+        manifest = root.parent / "strict-manifest.json"
+        evidence.check(
+            13,
+            "snapshot manifest",
+            lambda: (create_snapshot_manifest(root, manifest), verify_snapshot_manifest(manifest, root)),
+        )
         evidence.check(13, "loopback validation", lambda: validate_loopback_host("127.0.0.1"))
         server, thread, port = _local_http_server()
         try:
@@ -166,45 +189,53 @@ def main() -> int:
             evidence.check(13, "real localhost GET metadata", lambda: _http_json(port, "GET", "/metadata"))
             evidence.check(13, "mutation rejected", lambda: _http_json(port, "POST", "/metadata"))
         finally:
-            server.shutdown(); server.server_close(); thread.join(timeout=2)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        manifest.unlink(missing_ok=True)
 
-        # P14 — media workflow. A real media container is required for actual
-        # probe verification; a byte fixture is retained only for classification.
-        evidence.check(14, "media classification", lambda: media_records(root / "media"))
+        # P14 — media workflow. A generated real MP4 is required for probe E2E.
+        evidence.check(14, "media classification", lambda: media_records(media))
         evidence.check(14, "thumbnail/provider inventory", thumbnail_capability)
         ffmpeg = shutil.which("ffmpeg")
+        generated = media / "e2e.mp4"
         if ffmpeg:
-            generated = root / "media" / "e2e.mp4"
-            proc = _run([ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:d=1", "-pix_fmt", "yuv420p", "-y", str(generated)], timeout=30)
+            proc = _run(
+                [
+                    ffmpeg,
+                    "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=c=black:s=320x240:d=1",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    "-shortest", "-pix_fmt", "yuv420p", "-y", str(generated),
+                ],
+                timeout=30,
+            )
             if proc.returncode != 0:
                 raise RuntimeError(f"ffmpeg fixture generation failed: {proc.stderr.strip()}")
             evidence.check(14, "real ffprobe media inspection", lambda: media_probe(generated))
         else:
-            evidence.records.append({"phase": 14, "capability": "real ffprobe media inspection", "status": "FAIL", "error": "required provider missing: ffmpeg"})
+            evidence.check(14, "real ffprobe media inspection", lambda: Evidence.require_command("ffmpeg"))
 
         # P15 — document/AI modalities. Provider-backed capabilities are hard
-        # requirements for this strict gate.
-        pdf = root / "docs" / "e2e.pdf"
-        if shutil.which("pandoc"):
-            proc = _run(["pandoc", str(root / "docs" / "fixture.md"), "-o", str(pdf)])
-            if proc.returncode != 0:
-                raise RuntimeError(f"pandoc PDF generation failed: {proc.stderr.strip()}")
-        elif shutil.which("weasyprint"):
-            proc = _run(["weasyprint", str(root / "docs" / "fixture.md"), str(pdf)])
-            if proc.returncode != 0:
-                raise RuntimeError("weasyprint PDF generation failed")
-        else:
-            # A deterministic minimal PDF is sufficient for exercising the
-            # Lab PDF adapters; it contains no external data.
-            pdf.write_bytes(b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Pages 2 0 R>>endobj\n2 0 obj<< /Type /Pages /Kids [] /Count 0>>endobj\ntrailer<< /Root 1 0 R>>\n%%EOF\n")
+        # requirements for this strict verification campaign.
+        pdf = docs / "e2e.pdf"
+        _make_pdf(pdf)
         evidence.check(15, "document fingerprint", lambda: document_fingerprint(pdf))
-        evidence.check(15, "OCR provider", lambda: (evidence.require_command(15, "OCR provider", "tesseract"), ocr(root / "docs" / "fixture.txt")))
-        evidence.check(15, "speech-to-text provider", lambda: (evidence.require_command(15, "speech-to-text provider", "whisper"), speech_to_text(root / "media" / "e2e.mp4", timeout=60)))
+        evidence.check(
+            15,
+            "OCR provider",
+            lambda: (Evidence.require_command("tesseract"), ocr(docs / "fixture.txt")),
+        )
+        evidence.check(
+            15,
+            "speech-to-text provider",
+            lambda: (Evidence.require_command("whisper"), speech_to_text(generated, timeout=60)),
+        )
         evidence.check(15, "local embedding", lambda: len(local_embedding("strict e2e")) == 256)
-        evidence.check(15, "vision sidecar boundary", lambda: image_vision_summary(root / "media" / "sample.mp4"))
+        evidence.check(15, "vision sidecar boundary", lambda: image_vision_summary(docs / "fixture.txt"))
 
         # P16 — content-aware indexing/search.
-        idx = content_index([root / "docs" / "fixture.txt", root / "docs" / "fixture.md"])
+        idx = content_index([docs / "fixture.txt", docs / "fixture.md"])
         evidence.check(16, "content index", lambda: idx)
         evidence.check(16, "full-text search", lambda: search_content(idx, "searchable"))
         evidence.check(16, "metadata-aware search", lambda: search_content(idx, "fixture"))
@@ -213,7 +244,7 @@ def main() -> int:
         evidence.check(17, "local AI advisory is non-authoritative", lambda: {"authoritative": local_ai_advisory("strict fixture").authoritative})
         evidence.check(17, "category analysis", lambda: category_analysis(root.iterdir()))
         evidence.check(17, "AI workflow plan is non-authoritative", lambda: ai_workflow_plan([{"id": "e2e"}]))
-        evidence.check(17, "local model provider", lambda: evidence.require_command(17, "local model provider", "ollama"))
+        evidence.check(17, "local model provider", lambda: Evidence.require_command("ollama"))
 
         # P18 — analytics/economics.
         evidence.check(18, "growth forecast", lambda: growth_forecast([(0, 100), (86400, 200)]))
@@ -227,15 +258,15 @@ def main() -> int:
         snapshot.unlink(missing_ok=True)
 
         # P20 — explicit cross-project contracts.
-        evidence.check(20, "integration contracts", lambda: integration_contracts())
-        evidence.check(20, "project contracts", lambda: project_contracts())
+        evidence.check(20, "integration contracts", integration_contracts)
+        evidence.check(20, "project contracts", project_contracts)
 
-        # P21 — CAS/dedup plus orchestration and safety boundary.
+        # P21 — CAS/dedup + orchestration and safety boundary.
         cas = CASStore(root / "cas")
-        digest = cas.put(root / "docs" / "fixture.txt")
+        digest = cas.put(docs / "fixture.txt")
         evidence.check(21, "content-addressable storage", lambda: {"digest": digest, "present": cas.has(digest)})
-        evidence.check(21, "dedup planning", lambda: dedup_plan([root / "docs" / "fixture.txt"]))
-        evidence.check(21, "SHA-256 evidence", lambda: hashlib.sha256((root / "docs" / "fixture.txt").read_bytes()).hexdigest())
+        evidence.check(21, "dedup planning", lambda: dedup_plan([docs / "fixture.txt"]))
+        evidence.check(21, "SHA-256 evidence", lambda: hashlib.sha256((docs / "fixture.txt").read_bytes()).hexdigest())
 
     failures = [r for r in evidence.records if r["status"] == "FAIL"]
     report = {
@@ -254,7 +285,7 @@ def main() -> int:
         print(f"P{record['phase']:02d} {record['capability']}: {record['status']}")
     print(f"P12-P21 STRICT E2E: {'PASS' if not failures else 'FAIL'}")
     print(f"evidence records: {len(evidence.records)}")
-    print(f"production storage mutation: NONE")
+    print("production storage mutation: NONE")
     return 0 if not failures else 1
 
 
