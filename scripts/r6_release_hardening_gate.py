@@ -67,7 +67,8 @@ def main() -> int:
     ):
         assert gate in workflow, gate
 
-    assert "Only then may an RC or release tag be created." in checklist
+    assert "The repository's final release sequence is:" in checklist
+    assert "only then create the RC or release tag." in checklist
 
     print("R6 RELEASE HARDENING GATE: PASS")
     print("- zero-cost runtime contract: PASS")
