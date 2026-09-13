@@ -1,6 +1,6 @@
 """R3 media discovery, read-only exposure, and real Jellyfin verification."""
 from __future__ import annotations
-import json,os,shutil,signal,subprocess,time,urllib.error,urllib.parse,urllib.request,wave
+import json,os,secrets,shutil,signal,subprocess,time,urllib.error,urllib.parse,urllib.request,wave
 from dataclasses import dataclass,asdict
 from pathlib import Path
 from .models import FileRecord
@@ -57,7 +57,7 @@ def stop_exposure(exposure:MediaExposure):
   except ProcessLookupError:pass
 def _request(base_url,path,*,method="GET",token=None,payload=None,timeout=10,auth=False):
  data=None if payload is None else json.dumps(payload).encode();h={"Accept":"application/json","Content-Type":"application/json"}
- if auth:h["Authorization"]='MediaBrowser Client="TelDrive-Lab", Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
+ if auth:h["Authorization"]='MediaBrowser Client="TelDrive-Lab", App="TelDrive-Lab", Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
  elif token:h["Authorization"]=f'MediaBrowser Token="{token}"'
  req=urllib.request.Request(base_url.rstrip("/")+path,data=data,headers=h,method=method)
  try:
@@ -79,13 +79,23 @@ def wait_for_jellyfin(base_url,timeout=90):
   if s.reachable:return s
   time.sleep(1)
  raise R3Error("Jellyfin did not become ready")
-def configure_jellyfin(base_url,username="r3-admin",password="R3-Gate-2026-Disposable-Strong-Password-9X"):
- _request(base_url,"/Startup/User")
+def _startup_request_with_retry(base_url,path,*,method="GET",payload=None,timeout=10,retry_timeout=90,auth=False):
+ """Retry only transient 503 responses while Jellyfin finishes internal startup."""
+ deadline=time.monotonic()+retry_timeout
+ while True:
+  try:return _request(base_url,path,method=method,payload=payload,timeout=timeout,auth=auth)
+  except R3Error as exc:
+   if "HTTP 503" not in str(exc) or time.monotonic()>=deadline:raise
+   time.sleep(min(1.0,max(0.0,deadline-time.monotonic())))
+def configure_jellyfin(base_url,username="r3-admin",password=None):
+ password=password or secrets.token_urlsafe(32)
+ _startup_request_with_retry(base_url,"/Startup/User")
  for path,payload in [("/Startup/Configuration",{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}),("/Startup/User",{"Name":username,"Password":password}),("/Startup/RemoteAccess",{"EnableRemoteAccess":False,"EnableAutomaticPortMapping":False}),("/Startup/Complete",{})]:
-  try:_request(base_url,path,method="POST",payload=payload)
+  try:_startup_request_with_retry(base_url,path,method="POST",payload=payload)
   except R3Error as exc:
    if "HTTP 401" not in str(exc) and "HTTP 400" not in str(exc):raise
- _,auth_result=_request(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password},auth=True);token=auth_result.get("AccessToken") if isinstance(auth_result,dict) else None
+ _,auth_result=_startup_request_with_retry(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password,"App":"TelDrive-Lab"},timeout=10,retry_timeout=90,auth=True)
+ token=auth_result.get("AccessToken") if isinstance(auth_result,dict) else None
  if not token:raise R3Error("Jellyfin authentication returned no access token")
  return token
 def add_library(base_url,token,name,path,collection_type="music"):

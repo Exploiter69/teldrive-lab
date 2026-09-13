@@ -235,7 +235,7 @@ TelDrive corpus → automatic media discovery → media catalog
 → Jellyfin library exposure → Jellyfin → actual playback
 ```
 
-**Status at R0:** INCOMPLETE. Jellyfin/media adapters and primitives are not proof of an operational TelDrive-to-playback workflow. R3 owns this reconciliation.
+**Status at R3:** COMPLETE. The isolated R3 reconciliation gate now verifies bounded discovery/classification, controlled read-only exposure, real Jellyfin 12.0 startup/authentication, real library indexing, real stream playback, read-only container protection, and absence of TelDrive production mutation. See `docs/R3-MEDIA-JELLYFIN.md`.
 
 ---
 
@@ -352,6 +352,8 @@ Make `td search` operate over the discovered corpus and unify filename/path, met
 ### R3 — Operational Media / OTT
 
 Build and verify TelDrive corpus → media discovery → media catalog → Jellyfin library exposure → actual playback using safe Lab-owned/test media.
+
+**Status:** COMPLETE. The R3 CI gate verifies DISCOVER → CLASSIFY → EXPOSE → SERVE → INDEX → PLAY → PROTECT → VERIFY, and the workflow is documented. The automated path uses only disposable Lab-owned media and never mutates production TelDrive/rclone state.
 
 ### R4 — Durable Execution Reconciliation
 
