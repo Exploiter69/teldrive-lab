@@ -7,7 +7,7 @@ This checklist is a release-control document, not evidence that the repository i
 - [ ] **R0 — Product truth:** roadmap, status, code, tests, host gates, CI, and release claims agree
 - [ ] **R1 — Corpus discovery:** authoritative bounded incremental TelDrive ingestion is operational and end-to-end verified
 - [ ] **R2 — Unified TD Search:** `td search` searches the discovered corpus across applicable metadata/content layers
-- [ ] **R3 — Media / OTT:** TelDrive media discovery reaches a real media library and Jellyfin playback is verified with safe test media
+- [x] **R3 — Media / OTT:** TelDrive media discovery reaches a real media library and Jellyfin playback is verified with safe test media
 - [x] **R4 — Durable execution:** JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, Lifecycle, Verification, and Audit share one durable execution model
 - [x] **R5 — Control Center:** dashboard consumes live control-plane state rather than placeholder/default payloads
 
