@@ -37,8 +37,8 @@ def main() -> int:
             failures.append(f"status still advertises forbidden completion: | {n} | COMPLETE")
     if "# Phase 6 — Archive Manager" not in roadmap or "**Current status:** COMPLETE at reconciled control-plane level through R4." not in roadmap:
         failures.append("roadmap Phase 6 completion claim was not reconciled")
-    if "R0 → R5" not in roadmap:
-        failures.append("roadmap is missing the R0→R5 reconciliation program")
+    if "R0 → R6" not in roadmap:
+        failures.append("roadmap is missing the R0→R6 reconciliation program")
     if "PRIMITIVE → IMPLEMENTED → INTEGRATED → OPERATIONAL" not in roadmap:
         failures.append("roadmap is missing the evidence-driven completion standard")
     for marker, text, message in (("TELDRIVE_LAB_PROTECTED_ROOTS", operations, "operator documentation is missing configurable protected roots"), ("TELDRIVE_LAB_PROTECTED_STATE", operations, "operator documentation is missing configurable protected state"), ("TELDRIVE_LAB_PROTECTED_ROOTS", safety, "safety code does not implement configurable protected roots"), ("TELDRIVE_LAB_PROTECTED_STATE", safety, "safety code does not implement configurable protected state")):
