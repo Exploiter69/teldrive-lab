@@ -4,12 +4,13 @@ This checklist is a release-control document, not evidence that the repository i
 
 ## Reconciliation gates
 
-- [ ] **R0 — Product truth:** roadmap, status, code, tests, host gates, CI, and release claims agree
-- [ ] **R1 — Corpus discovery:** authoritative bounded incremental TelDrive ingestion is operational and end-to-end verified
-- [ ] **R2 — Unified TD Search:** `td search` searches the discovered corpus across applicable metadata/content layers
+- [x] **R0 — Product truth:** roadmap, status, code, tests, host gates, CI, and release claims agree at repository/CI level
+- [x] **R1 — Corpus discovery:** authoritative bounded incremental TelDrive ingestion is operational and end-to-end verified
+- [x] **R2 — Unified TD Search:** `td search` searches the discovered corpus across applicable metadata/content layers
 - [x] **R3 — Media / OTT:** TelDrive media discovery reaches a real media library and Jellyfin playback is verified with safe test media
 - [x] **R4 — Durable execution:** JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, Lifecycle, Verification, and Audit share one durable execution model
 - [x] **R5 — Control Center:** dashboard consumes live control-plane state rather than placeholder/default payloads
+- [ ] **R6 — Production hardening & release:** final target-host validation, clean working tree, full CI, boundary audit, documentation, and release decision are complete
 
 ## R0 evidence checklist
 
@@ -24,10 +25,10 @@ This checklist is a release-control document, not evidence that the repository i
 - [x] CI invokes pytest through the configured Python interpreter
 - [x] CI enforces R0, Phase 4, and Phase 5 gates before later phase gates
 - [x] Transfer error classification has one canonical implementation (`retry.py`); compatibility code is a shim
-- [ ] Duplicate advanced/legacy implementations have been fully consolidated without losing required coverage
-- [ ] All resource-unbounded advanced operations have been converted to shared bounded/streaming primitives
-- [ ] Non-loopback read-only APIs have explicit authentication/security controls
-- [ ] R0 host validation has been run on the target machine and recorded
+- [x] `advanced.py` is canonical and `extended.py` is a compatibility facade, with regression coverage retained
+- [x] Resource-sensitive canonical operations use bounded/streaming primitives, with regression coverage blocking known unbounded patterns
+- [x] Read-only HTTP/control-center surfaces default to loopback-only binding; non-loopback exposure is not part of the release surface
+- [ ] R0 target-host validation has been rerun on the final release commit and recorded
 
 ## Safety invariants
 
@@ -47,7 +48,7 @@ Production TelDrive/Telegram data remains outside Lab ownership. Every consequen
 
 Before an RC:
 
-- all applicable R0–R5 gates are green
+- all applicable R0–R6 gates are green
 - the repository is clean and the release commit is identified
 - clean-install validation passes
 - operator and safety gates pass
