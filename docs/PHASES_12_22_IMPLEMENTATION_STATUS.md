@@ -1,6 +1,6 @@
 # Phase 12–22 Implementation Status
 
-This status file records the evidence-based state of Phases 12–22. It does not equate the existence of code, tests, adapters, or contracts with a complete product workflow.
+This document is the current evidence/status companion to `ROADMAP.md`. It supersedes the old R0-only interpretation of this file while preserving the distinction between **implemented capability** and **end-to-end product verification**.
 
 ## Completion standard
 
@@ -24,87 +24,74 @@ COMPLETE
 
 **COMPLETE** requires the applicable stages above to be satisfied. Optional providers may legitimately be unavailable on a host, but an adapter or contract is not itself evidence that an integration is operational.
 
-See `docs/RECONCILIATION_GATE_R0.md` for the full product reconciliation and dependent-gate plan.
+## Current state at R6
 
-## Current state at R0
+The deterministic Phase 12–22 extension layer is implemented and covered by repository tests and disposable host-gate evidence. It is deliberately **not** presented as universally end-to-end operational: optional providers, advisory AI, experimental workers, and high-risk restore workflows have different evidence requirements.
 
-| Phase | Status | Main truth |
+| Phase | Current status | Evidence / truth |
 |---|---|---|
-| 12 | PRIMITIVES | Storage/cache intelligence exists, but is not yet a proven end-to-end product workflow. |
-| 13 | PRIMITIVES | Read-only HTTP/IPC and metadata surfaces exist; integration/boundary evidence remains. |
-| 14 | INCOMPLETE | Media primitives and integration contracts exist; Jellyfin/OTT is not operationally proven. |
-| 15 | PROVIDER PRIMITIVES | OCR/STT/embedding/visual helpers exist; no complete integrated intelligence pipeline is proven. |
-| 16 | INCOMPLETE | Advanced content search exists separately from `td search`; authoritative corpus ingestion and unified search are missing. |
-| 17 | ADVISORY PRIMITIVES | AI assistance remains advisory; product integration and end-to-end value are not complete. |
-| 18 | ADVISORY | Storage analytics/recommendation primitives exist; operational integration remains incomplete. |
-| 19 | SNAPSHOT PRIMITIVES | Snapshot/restore primitives exist; the complete durable operational workflow is not proven. |
-| 20 | CONTRACTS | Cross-project contracts exist; real production workflows are not yet operational. |
-| 21 | EXPERIMENTAL | Experimental capabilities exist and remain isolated until proven. |
-| 22 | INCOMPLETE | Control Center is a UI/API shell with default empty payloads rather than a live control-plane surface. |
+| 12 | IMPLEMENTED / CAPABILITY-GATED | Storage/cache intelligence has deterministic local implementations and tests. Eviction remains planning-only; no automatic production eviction. No universal real-world E2E claim. |
+| 13 | IMPLEMENTED / READ-ONLY | JSON/IPC, filesystem metadata, and catalog export/import are implemented with safety tests. Optional interoperability remains bounded/read-only. |
+| 14 | COMPLETE | R3 supersedes the old R0 status: media discovery/classification, controlled exposure, real Jellyfin indexing/playback, protection, and verification are E2E-tested with disposable Lab-owned media. |
+| 15 | IMPLEMENTED / OPTIONAL PROVIDERS | OCR, PDF metadata, STT, embeddings, and vision capabilities exist. Provider availability/model quality and full provider-specific pipelines are not universally E2E-proven. |
+| 16 | IMPLEMENTED / CAPABILITY-GATED | Full-text/OCR/transcript indexing and local semantic ranking exist. Not every optional content modality/provider has independent real-world E2E evidence. |
+| 17 | ADVISORY / IMPLEMENTED | Natural-language and recommendation wrappers are policy-bounded and advisory. AI never has mutation authority; universal AI-provider E2E is not claimed. |
+| 18 | IMPLEMENTED / ADVISORY | Growth, heatmap, category, reclaim-estimate, archive-recommendation, and transfer-cost analytics are deterministic/advisory. No destructive reclaim automation. |
+| 19 | IMPLEMENTED / HIGH-RISK | Snapshots, incremental manifests, retention, verification, restore plans and dry-runs exist. Restore remains explicitly authorized and is not claimed as independently production E2E-proven. |
+| 20 | CONTRACTS / IMPLEMENTED | Explicit versioned contracts exist for cross-project consumers. Independent production integrations are not claimed. |
+| 21 | EXPERIMENTAL / IMPLEMENTED | CAS, report-only dedup, tiering, compression, trusted-worker planning, and local AI orchestration exist behind isolation/policy boundaries. Concrete experimental workflows require separate evidence before operational claims. |
+| 22 | COMPLETE AS READ-ONLY CONTROL SURFACE | Live loopback-only GET Control Center is backed by catalog/jobs/transfers/media/search/health/audit/config state. Storage analytics and archive/search are represented as control-plane payload/API surfaces, not an autonomous mutation UI. |
 
-## R0 hardening evidence
+## Evidence model
 
-R0 closes repository-level implementation hygiene without promoting later product workflows to COMPLETE:
+The repository contains strong deterministic evidence for the implementation layer:
 
-- `teldrive_lab/advanced.py` is the canonical Phase 12–22 implementation.
-- `teldrive_lab/extended.py` is a compatibility facade for legacy imports.
-- `teldrive_lab/resources.py` provides deterministic bounded traversal, explicit resource-limit failures, streaming SHA-256, bounded sampling, and streaming copy primitives.
-- Canonical Phase 12–22 code contains no unbounded `rglob()` traversal or whole-file `read_bytes()` operation.
-- Read-only JSON/control-center HTTP servers validate loopback binding and reject wildcard/LAN/public exposure by default.
-- R0 tests exercise traversal limits, symlink containment, streaming hashes, bounded sampling, CAS/dedup, compatibility delegation, and HTTP read-only behavior.
+- `tests/test_phases12_22_complete.py` exercises the roadmap capabilities and global safety invariants using local fixtures.
+- `tests/test_phase14_15_providers.py` covers concrete optional provider adapters and IPC behavior.
+- `scripts/phases12_22_host_gate.py` exercises selected Phase 12–22 capabilities using disposable Lab-owned temporary state and never production TelDrive/rclone state.
+- R3 independently provides real Jellyfin library/playback evidence for Phase 14.
+- R5 independently provides live Control Center evidence for Phase 22.
+- R6 provides release-hardening evidence for safety, cost, CI, shell execution, production boundaries, and evidence-controlled claims.
 
-These are reconciliation/hardening outcomes only. They do not change the product-critical gaps below.
+These gates prove the applicable implementation/safety boundaries. They do **not** imply that every optional provider or experimental workflow has been exercised against a real external ecosystem.
 
-## Product-critical gaps
+## What is deliberately not claimed
 
-### Corpus discovery
+The project does **not** claim that every optional P12–P21 capability has independent real-world E2E evidence.
 
-The Lab still needs an authoritative, bounded, incremental discovery/ingestion path for the existing TelDrive corpus. The catalog is derived state and should be rebuilt from authoritative interfaces without requiring manual registration of every existing file.
+In particular:
 
-### TD Search
+- optional OCR/STT/vision/embedding/model providers may be absent or host-dependent;
+- semantic/content workflows have deterministic local implementations but are not a universal quality guarantee across all media/document types;
+- advisory AI features are not authoritative and are not required for the core product;
+- restore is high-risk and remains explicitly authorized rather than silently promoted to production automation;
+- distributed/remote worker and other experimental workflows remain isolated until separately proven;
+- Phase 20 contracts do not mean every consuming project has an independently verified production integration.
 
-The intended product surface is one `td search` spanning, as available:
+This is an intentional evidence boundary. It prevents a passing unit/host gate from being misrepresented as proof of every possible external workflow.
 
-```text
-filename/path
-metadata
-media metadata
-full text
-OCR
-transcripts
-optional semantic layer
-```
+## Relationship to the historical R0 record
 
-The current basic catalog search and advanced content search are not yet unified.
+The former `Current state at R0` table and R0 product-gap language described the repository **before** the R1–R5 reconciliation work. Those claims are historical now.
 
-### Media / OTT
+The canonical historical R0 baseline remains documented in `docs/RECONCILIATION_GATE_R0.md`. Current status is governed by this file, `ROADMAP.md`, and the individual R1–R6 completion documents.
 
-Jellyfin is currently an integration contract/adapter capability, not a proven TelDrive-to-library-to-playback workflow. Operational completion requires an end-to-end test of discovery, media metadata, library exposure, and playback using safe Lab-owned/test media.
+## Safety and cost invariants
 
-### Control Center
+The following remain mandatory:
 
-The current dashboard/API surface must not be described as a live control center until it consumes live catalog, job, transfer, media, search, health, and audit state.
+- production write requires explicit authorization through the Lab boundary;
+- no production delete or autonomous production eviction;
+- no direct TelDrive database write;
+- AI is never mutation authority;
+- UI is never mutation authority;
+- untrusted remote workers cannot mutate production;
+- ₹0/$0 remains mandatory: no paid runtime dependency, paid API, or mandatory remote AI;
+- optional providers never become storage authority;
+- consequential mutations remain policy → authorization → controlled execution → verification → audit.
 
-## Provider policy
+## Current release interpretation
 
-Optional tools such as ffmpeg/ffprobe, Tesseract, Whisper, llama.cpp, Ollama, Jellyfin, Plex, and remote workers may report unavailable capability when absent. The deterministic core must continue to work without paid services or mandatory remote AI.
+The core control-plane product is complete and release-hardened through R0–R6. Phase 12–21 extensions are implemented with capability-scoped evidence rather than falsely promoted to universal `COMPLETE`. Phase 14 and Phase 22 have stronger operational/E2E evidence through R3 and R5 respectively.
 
-The project's ₹0 constraint remains mandatory.
-
-## Safety
-
-The following remain prohibited by construction and policy:
-
-- production write without explicit authorization through the Lab boundary
-- production delete
-- automatic production eviction
-- TelDrive database write
-- AI as mutation authority
-- UI as mutation authority
-- untrusted remote-worker mutation
-
-All future mutation-capable workflows must continue through policy, authorization, controlled execution, verification, and audit.
-
-## R0 exit condition
-
-Do not promote these phases to COMPLETE until their applicable integration, operational, end-to-end verification, and documentation evidence exists. Feature expansion should remain frozen while the R0 → R5 reconciliation sequence is executed.
+Do not create a new feature phase solely to address the evidence distinction above. If a future release wants a particular optional P12–P21 workflow to become `COMPLETE`, add the specific integration/E2E evidence for that workflow and update its status without weakening the global completion standard.
