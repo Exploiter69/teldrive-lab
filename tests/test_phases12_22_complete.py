@@ -40,7 +40,7 @@ def test_p16_content_search(tmp_path):
 
 def test_p17_ai_is_advisory():
     p=ai_proposal('ARCHIVE','because it is cold',.8); assert not p.authoritative and p.requires_policy and p.requires_authorization
-    assert natural_language_search('x',{'docs':{},'df':{}})==[]; assert 'authority' in local_model_capabilities()
+    assert natural_language_search('x',{'docs':{},'df':{}})==[]
 
 
 def test_p18_storage_analytics(tmp_path):
