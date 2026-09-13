@@ -57,7 +57,7 @@ def stop_exposure(exposure:MediaExposure):
   except ProcessLookupError:pass
 def _request(base_url,path,*,method="GET",token=None,payload=None,timeout=10,auth=False):
  data=None if payload is None else json.dumps(payload).encode();h={"Accept":"application/json","Content-Type":"application/json"}
- if auth:h["Authorization"]='MediaBrowser Client="TelDrive-Lab", Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
+ if auth:h["Authorization"]='MediaBrowser Client="TelDrive-Lab", App="TelDrive-Lab", Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
  elif token:h["Authorization"]=f'MediaBrowser Token="{token}"'
  req=urllib.request.Request(base_url.rstrip("/")+path,data=data,headers=h,method=method)
  try:
