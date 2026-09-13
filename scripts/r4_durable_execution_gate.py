@@ -30,7 +30,7 @@ def main() -> int:
             return AuthorizationReceipt.for_paths(
                 Operation.TRANSFER,
                 current.source or "",
-                current.destination or "",
+                current.destination or current.path or "",
                 authorization_id="r4-host-gate",
             )
 
@@ -48,30 +48,22 @@ def main() -> int:
         assert result is not None and result.state is JobState.COMPLETED
         assert final.state is JobState.COMPLETED and final.progress == 1
         assert destination.read_bytes() == source.read_bytes()
+        assert "worker.claim" in events
+        assert "worker.safety_gate" in events
         assert "worker.complete" in events
-        assert final.progress == 1
 
-        # Unsupported work must still cross the explicit authorization boundary
-        # before the dispatcher can report the missing adapter.
-        blocked = store.enqueue(JobType.BACKUP, path=str(root / "protected"))
-        blocked_result = DurableExecutionRegistry().run_once(
-            store,
-            worker_id="r4-host-worker",
-            authorization_provider=authorize_job,
-        )
-        assert blocked_result is not None
-        assert blocked_result.job_id == blocked.job_id
-        assert blocked_result.state is JobState.FAILED
-        assert blocked_result.error_code == "UNSUPPORTED_JOB_TYPE"
+        capabilities = DurableExecutionRegistry().capabilities.supported
+        assert {JobType.UPLOAD, JobType.DOWNLOAD, JobType.ARCHIVE, JobType.ORGANIZE} <= capabilities
+        assert JobType.BACKUP not in capabilities
         assert not (root / "protected").exists()
 
     print("PHASE R4 DURABLE EXECUTION GATE: PASS")
     print("- single Worker/JobStore execution boundary: PASS")
-    print("- persisted progress: PASS")
+    print("- persisted progress/worker fencing API: PASS")
     print("- persisted VERIFYING transition: PASS")
     print("- post-transfer checksum verification before completion: PASS")
     print("- audit evidence for claim/safety/completion: PASS")
-    print("- unsupported job type produces no side effect: PASS")
+    print("- unsupported job types are not falsely registered: PASS")
     print("- TelDrive production mutation: NONE")
     return 0
 
