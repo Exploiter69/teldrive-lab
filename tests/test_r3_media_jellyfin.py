@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -74,3 +75,39 @@ def test_startup_request_honors_deadline(monkeypatch):
     monkeypatch.setattr(media_jellyfin.time, "sleep", lambda value: None)
     with pytest.raises(media_jellyfin.R3Error, match="HTTP 503"):
         media_jellyfin._startup_request_with_retry("http://127.0.0.1:1234", "/Startup/User", retry_timeout=1)
+
+
+def test_authenticated_request_includes_jellyfin_app_header(monkeypatch):
+    captured = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{}'
+
+    def fake_urlopen(request, timeout):
+        captured["authorization"] = request.get_header("Authorization")
+        return Response()
+
+    monkeypatch.setattr(media_jellyfin.urllib.request, "urlopen", fake_urlopen)
+    status, payload = media_jellyfin._request(
+        "http://127.0.0.1:8096",
+        "/Users/AuthenticateByName",
+        method="POST",
+        payload={"Username": "r3-admin", "Pw": "test"},
+        auth=True,
+    )
+
+    assert status == 200
+    assert payload == {}
+    assert captured["authorization"] == (
+        'MediaBrowser Client="TelDrive-Lab", App="TelDrive-Lab", '
+        'Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
+    )
