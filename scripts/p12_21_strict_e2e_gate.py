@@ -10,6 +10,7 @@ are hard requirements: missing providers are failures, never silent skips.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import http.client
 import json
@@ -65,6 +66,21 @@ from teldrive_lab.extended import (
 TIMEOUT = 30
 
 
+def _jsonable(value: Any) -> Any:
+    """Convert gate evidence into JSON-safe deterministic data."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _jsonable(dataclasses.asdict(value))
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
 class Evidence:
     def __init__(self) -> None:
         self.records: list[dict[str, Any]] = []
@@ -73,21 +89,25 @@ class Evidence:
         started = time.monotonic()
         try:
             result = fn()
-            self.records.append({
-                "phase": phase,
-                "capability": capability,
-                "status": "PASS",
-                "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                "evidence": result if isinstance(result, (dict, list, str, int, float, bool)) else str(result),
-            })
+            self.records.append(
+                {
+                    "phase": phase,
+                    "capability": capability,
+                    "status": "PASS",
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "evidence": _jsonable(result),
+                }
+            )
         except Exception as exc:  # noqa: BLE001 - gate must record exact failure
-            self.records.append({
-                "phase": phase,
-                "capability": capability,
-                "status": "FAIL",
-                "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                "error": f"{type(exc).__name__}: {exc}",
-            })
+            self.records.append(
+                {
+                    "phase": phase,
+                    "capability": capability,
+                    "status": "FAIL",
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
 
     @staticmethod
     def require_command(command: str) -> str:
@@ -211,8 +231,13 @@ def main() -> int:
                 timeout=30,
             )
             if proc.returncode != 0:
-                raise RuntimeError(f"ffmpeg fixture generation failed: {proc.stderr.strip()}")
-            evidence.check(14, "real ffprobe media inspection", lambda: media_probe(generated))
+                evidence.check(
+                    14,
+                    "real ffprobe media inspection",
+                    lambda: (_ for _ in ()).throw(RuntimeError(f"ffmpeg fixture generation failed: {proc.stderr.strip()}")),
+                )
+            else:
+                evidence.check(14, "real ffprobe media inspection", lambda: media_probe(generated))
         else:
             evidence.check(14, "real ffprobe media inspection", lambda: Evidence.require_command("ffmpeg"))
 
@@ -276,7 +301,7 @@ def main() -> int:
         "recorded_at": time.time(),
         "host": {"python": os.sys.version, "platform": os.name},
         "summary": {"total": len(evidence.records), "passed": len(evidence.records) - len(failures), "failed": len(failures)},
-        "records": evidence.records,
+        "records": _jsonable(evidence.records),
     }
     if args.evidence:
         args.evidence.parent.mkdir(parents=True, exist_ok=True)
