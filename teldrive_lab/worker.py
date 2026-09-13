@@ -85,7 +85,7 @@ class Worker:
                                      error_message=str(exc))
 
         current = self.store.get(job.job_id)
-        if current.state is not JobState.RUNNING or current.worker_id != self.worker_id:
+        if current.state not in (JobState.RUNNING, JobState.VERIFYING) or current.worker_id != self.worker_id:
             self._audit(
                 "worker.control_race", current, "ALLOWED", current.state.value,
                 details={"execution_status": result.status.value},
@@ -93,7 +93,9 @@ class Worker:
             return current
 
         if result.status is ExecutionStatus.SUCCESS:
-            completed = self.store.complete(job.job_id, self.worker_id)
+            verifying = self.store.begin_verification(job.job_id, self.worker_id)
+            self._audit("worker.verifying", verifying, "ALLOWED", "VERIFYING")
+            completed = self.store.complete_verification(job.job_id, self.worker_id)
             self._audit("worker.complete", completed, "ALLOWED", "COMPLETED")
             return completed
 
