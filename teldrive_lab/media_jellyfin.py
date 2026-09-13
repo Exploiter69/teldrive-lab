@@ -94,7 +94,7 @@ def configure_jellyfin(base_url,username="r3-admin",password=None):
   try:_startup_request_with_retry(base_url,path,method="POST",payload=payload)
   except R3Error as exc:
    if "HTTP 401" not in str(exc) and "HTTP 400" not in str(exc):raise
- _,auth_result=_startup_request_with_retry(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password},timeout=10,retry_timeout=90)
+ _,auth_result=_startup_request_with_retry(base_url,"/Users/AuthenticateByName",method="POST",payload={"Username":username,"Pw":password,"App":"TelDrive-Lab"},timeout=10,retry_timeout=90)
  token=auth_result.get("AccessToken") if isinstance(auth_result,dict) else None
  if not token:raise R3Error("Jellyfin authentication returned no access token")
  return token
