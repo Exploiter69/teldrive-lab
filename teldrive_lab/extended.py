@@ -159,7 +159,7 @@ class ExperimentSpec:
     production_mutation: bool = False
 
 
-def experimental_registry() -> list[ExperimentSpec]: return [ExperimentSpec("content-addressable-index", "benchmark content-addressed metadata without moving files"), ExperimentSpec("tiering-simulator", "simulate tier placement and costs without changing storage"), ExperimentSpec("snapshot-compression-benchmark", "measure local compression on copied test fixtures"), ExperimentSpec("distributed-worker-protocol", "protocol-only worker leasing experiment"), ExperimentSpec("local-ai-orchestration", "advisory-only model orchestration benchmark")]
+def experimental_registry() -> list[ExperimentSpec]: return [ExperimentSpec("content-addressable-index", "benchmark content-addressed metadata without moving files"), ExperimentSpec("tiering-simulator", "simulate tier placement and costs without changing storage"), ExperimentSpec("snapshot-compression-benchmark", "measure local compression on copied test fixtures"), ExperimentSpec("distributed-worker-protocol", "protocol-only worker leasing experiment")]
 
 
 def control_center_payload(root: str | Path) -> dict:
@@ -192,7 +192,6 @@ remote_metadata_request = advanced.remote_metadata_request
 text_extract = advanced.text_extract
 pdf_metadata = advanced.pdf_metadata
 ocr = advanced.ocr
-speech_to_text = advanced.speech_to_text
 local_embedding = advanced.local_embedding
 image_vision_summary = advanced.image_vision_summary
 content_index = advanced.content_index
@@ -202,8 +201,6 @@ ai_proposal = advanced.ai_proposal
 natural_language_search = advanced.natural_language_search
 organization_suggestions = advanced.organization_suggestions
 anomaly_explanations = advanced.anomaly_explanations
-local_model_capabilities = advanced.local_model_capabilities
-ollama_generate = advanced.ollama_generate
 category_analysis = advanced.category_analysis
 transfer_cost_estimate = advanced.transfer_cost_estimate
 manifest_tree = advanced.manifest_tree
