@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from teldrive_lab.audit import open_audit, record_event
 from teldrive_lab.runtime import ensure_runtime, runtime_paths
 from teldrive_lab.safety import Operation, authorize, is_protected
@@ -47,6 +49,40 @@ def test_production_mutation_is_denied_even_when_authorized() -> None:
     assert not decision.allowed
     assert "protected production boundary" in decision.reason
     assert not decision.requires_authorization
+
+
+def test_configured_protected_root_is_additive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    protected = tmp_path / "production"
+    monkeypatch.setenv("TELDRIVE_LAB_PROTECTED_ROOTS", str(protected))
+    assert is_protected(protected)
+    assert is_protected(protected / "nested" / "file.bin")
+
+
+def test_configured_protected_state_is_additive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    protected = tmp_path / "production.db"
+    monkeypatch.setenv("TELDRIVE_LAB_PROTECTED_STATE", str(protected))
+    assert is_protected(protected)
+
+
+def test_runtime_state_inside_protected_root_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    protected = tmp_path / "production"
+    monkeypatch.setenv("TELDRIVE_LAB_PROTECTED_ROOTS", str(protected))
+    with pytest.raises(ValueError, match="protected production boundary"):
+        runtime_paths(protected / "lab-state")
+
+
+def test_runtime_cache_inside_protected_root_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    protected = tmp_path / "production"
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("TELDRIVE_LAB_PROTECTED_ROOTS", str(protected))
+    monkeypatch.setenv("TELDRIVE_LAB_CACHE", str(protected / "cache"))
+    with pytest.raises(ValueError, match="protected production boundary"):
+        runtime_paths(tmp_path / "lab-state")
+    assert cache != protected
 
 
 def test_runtime_creation_is_lab_owned(tmp_path: Path) -> None:

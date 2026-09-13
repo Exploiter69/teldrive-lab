@@ -1,73 +1,57 @@
 # Release checklist
 
-This checklist is the release path after completion of the product roadmap. It deliberately separates release hardening from future feature development.
+This checklist is a release-control document, not evidence that the repository is already release-ready. A checked item must have current code/test/host evidence.
 
-## R1 — Safety audit
+## Reconciliation gates
 
-- [x] Production storage boundary audited
-- [x] Protected roots/state cannot be weakened by configuration
-- [x] Mutation authorization is scope-bound
-- [x] No direct TelDrive PostgreSQL writes
-- [x] No arbitrary shell execution boundary
-- [x] Paid dependencies absent
+- [ ] **R0 — Product truth:** roadmap, status, code, tests, host gates, CI, and release claims agree
+- [ ] **R1 — Corpus discovery:** authoritative bounded incremental TelDrive ingestion is operational and end-to-end verified
+- [ ] **R2 — Unified TD Search:** `td search` searches the discovered corpus across applicable metadata/content layers
+- [ ] **R3 — Media / OTT:** TelDrive media discovery reaches a real media library and Jellyfin playback is verified with safe test media
+- [ ] **R4 — Durable execution:** JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, Lifecycle, Verification, and Audit share one durable execution model
+- [ ] **R5 — Control Center:** dashboard consumes live control-plane state rather than placeholder/default payloads
 
-## R2 — Clean installation / host validation
+## R0 evidence checklist
 
-- [x] Fresh virtual environment
-- [x] Package installs successfully
-- [x] CLI works outside the source tree
-- [x] Full test suite passes in the clean environment
-- [x] Protected production mutation is denied
-
-## R3 — Operator drill
-
-- [x] Lab-owned state initialized in an isolated location
-- [x] Durable job created and inspected
-- [x] Worker lease exercised
-- [x] Pause/resume/cancel exercised
-- [x] Job-control actions appear in audit history
-
-## R4 — CI hardening
-
-- [x] CI uses least-privilege read-only repository permissions
+- [x] Evidence-driven completion standard is documented
+- [x] Phases 12–22 are no longer advertised as complete merely from code/adapters/contracts
+- [x] Phase 6 is no longer advertised as complete before its documented end-to-end workflow exists
+- [x] R0→R5 reconciliation program is documented
+- [x] Configurable protected roots/state are implemented additively
+- [x] Lab runtime state/cache paths are rejected when they resolve inside protected production boundaries
+- [x] CI declares least-privilege repository permissions
 - [x] CI has a bounded job timeout
 - [x] CI invokes pytest through the configured Python interpreter
-- [x] Full phase/stage gate chain remains enforced
+- [x] CI enforces R0, Phase 4, and Phase 5 gates before later phase gates
+- [x] Transfer error classification has one canonical implementation (`retry.py`); compatibility code is a shim
+- [ ] Duplicate advanced/legacy implementations have been fully consolidated without losing required coverage
+- [ ] All resource-unbounded advanced operations have been converted to shared bounded/streaming primitives
+- [ ] Non-loopback read-only APIs have explicit authentication/security controls
+- [ ] R0 host validation has been run on the target machine and recorded
 
-## R5 — Documentation
-
-- [x] Installation guide
-- [x] Operator guide
-- [x] Release safety contract
-- [x] Product roadmap and non-goals
-- [x] Repository README points to operational documentation
-- [x] Release checklist
-
-## R6 — Release candidate
-
-- [ ] Freeze feature work
-- [ ] Confirm release branch/commit is clean
-- [ ] Re-run clean-install validation
-- [ ] Re-run operator and safety gates
-- [ ] Review version and release notes
-- [ ] Perform final production-boundary audit
-- [ ] Tag an RC only after all checks pass
-
-## R7 — v1.0
-
-- [ ] RC has no release-blocking findings
-- [ ] Final test/gate suite is green
-- [ ] Final production-boundary audit is green
-- [ ] Release notes accurately describe implemented capabilities and limitations
-- [ ] Publish the v1.0 tag
-
-## Release invariants
+## Safety invariants
 
 A release must not introduce:
 
-- direct TelDrive database writes
+- direct TelDrive PostgreSQL writes
 - autonomous destructive storage administration
 - silent production mutation
+- authorization minted by a worker, planner, scheduler, or UI
 - paid runtime dependencies
 - mandatory remote AI
 - claims of unlimited or permanent Telegram storage
+
+Production TelDrive/Telegram data remains outside Lab ownership. Every consequential mutation must remain inside the policy → authorization → controlled execution → verification → audit lifecycle.
+
+## Release candidate
+
+Before an RC:
+
+- all applicable R0–R5 gates are green
+- the repository is clean and the release commit is identified
+- clean-install validation passes
+- operator and safety gates pass
+- release notes describe only verified capabilities and limitations
+- final production-boundary audit is green
+
+Only then may an RC or release tag be created.
