@@ -100,7 +100,9 @@ A provider outage should result in a degraded/paused workflow, preservation of l
 
 ## 8. Optional capabilities
 
-rclone, Docker, FFmpeg, Tesseract, Whisper, Ollama, Jellyfin, and other integrations are optional. Core operation must remain useful without an LLM or paid service.
+rclone, Docker, FFmpeg, Tesseract, and Jellyfin are optional integrations. Core operation remains useful without an LLM or paid service.
+
+Whisper/speech-to-text and Ollama/local LLM runtime are intentionally out of scope. They are not required for tests, release, normal operation, or the P12–P21 extension layer.
 
 AI, when enabled, is advisory. It cannot authorize deletion, overwrite data, change retention, restore over existing content, expose private data, or migrate the only verified copy.
 
