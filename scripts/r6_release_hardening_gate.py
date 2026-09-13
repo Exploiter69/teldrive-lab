@@ -13,23 +13,18 @@ def read(path: str) -> str:
 
 
 def main() -> int:
-    roadmap = read("ROADMAP.md")
     checklist = read("docs/RELEASE_CHECKLIST.md")
+    r6_doc = read("docs/R6-RELEASE-HARDENING.md")
     workflow = read(".github/workflows/test.yml")
     pyproject = read("pyproject.toml")
     boundary = read("PRODUCTION_BOUNDARY.md")
     safety = read("SAFETY_CONTRACT.md")
 
-    # R6 must not silently regress the zero-cost/runtime contract.
     assert "dependencies = []" in pyproject
     assert "permissions:\n  contents: read" in workflow
     assert "timeout-minutes:" in workflow
+    assert "R6" in checklist and "R6" in r6_doc
 
-    # Release documentation must identify R6 as the final hardening gate.
-    assert "R6" in checklist
-    assert "R6" in roadmap
-
-    # Production-boundary language must remain explicit.
     required_safety_terms = (
         "TelDrive",
         "PostgreSQL",
@@ -41,7 +36,6 @@ def main() -> int:
     for term in required_safety_terms:
         assert term.lower() in (boundary + safety).lower(), term
 
-    # Reject obvious unsafe execution patterns in Lab Python sources/scripts.
     source_files = list((ROOT / "teldrive_lab").rglob("*.py")) + list(
         (ROOT / "scripts").rglob("*.py")
     )
@@ -54,7 +48,6 @@ def main() -> int:
         for pattern in forbidden:
             assert not re.search(pattern, text), f"unsafe execution pattern: {path}: {pattern}"
 
-    # CI must execute the complete reconciliation matrix.
     for gate in (
         "r0_product_truth_gate.py",
         "r1_corpus_discovery_gate.py",
@@ -74,7 +67,6 @@ def main() -> int:
     ):
         assert gate in workflow, gate
 
-    # The release checklist must not claim the RC is ready merely from this gate.
     assert "Only then may an RC or release tag be created." in checklist
 
     print("R6 RELEASE HARDENING GATE: PASS")
