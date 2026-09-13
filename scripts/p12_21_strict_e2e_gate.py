@@ -5,7 +5,8 @@ mounts, reads, writes, deletes, reorganizes, or reconfigures TelDrive
 production storage, rclone mounts, or the TelDrive database.
 
 Every capability gets an individual evidence record. Provider-backed checks
-are hard requirements: missing providers are failures, never silent skips.
+are hard requirements: missing providers or non-functional providers are
+failures, never silent skips.
 """
 from __future__ import annotations
 
@@ -37,9 +38,11 @@ from teldrive_lab.advanced import (
     growth_forecast,
     image_vision_summary,
     local_embedding,
+    local_model_capabilities,
     media_probe,
     media_records,
     ocr,
+    ollama_generate,
     prefetch_suggestions,
     project_contracts,
     record_access,
@@ -150,6 +153,34 @@ def _make_pdf(path: Path) -> None:
     )
 
 
+def _strict_speech_to_text(path: Path) -> dict[str, Any]:
+    """Require a successful real Whisper invocation, not binary discovery."""
+    provider = Evidence.require_command("whisper")
+    result = speech_to_text(path, timeout=60)
+    if not result.get("available"):
+        raise RuntimeError("Whisper provider invocation failed")
+    output = result.get("output", "")
+    if not isinstance(output, str):
+        raise RuntimeError("Whisper provider returned invalid output")
+    return {"provider": provider, "tool": result.get("tool"), "invoked": True, "output_bytes": len(output.encode())}
+
+
+def _strict_ollama() -> dict[str, Any]:
+    """Require a real local Ollama model inference through the Lab adapter."""
+    capabilities = local_model_capabilities()
+    if not capabilities.get("ollama"):
+        raise RuntimeError("required provider missing: ollama")
+    model = os.environ.get("TELDRIVE_LAB_E2E_OLLAMA_MODEL", "qwen2.5-coder:7b")
+    prompt = "Reply with exactly the word PASS."
+    try:
+        output = ollama_generate(prompt, model=model, host="127.0.0.1", port=11434, timeout=30)
+    except Exception as exc:  # noqa: BLE001 - preserve provider failure in gate evidence
+        raise RuntimeError(f"Ollama provider invocation failed for model {model}: {exc}") from exc
+    if not isinstance(output, str) or not output.strip():
+        raise RuntimeError(f"Ollama provider returned empty output for model {model}")
+    return {"provider": "ollama", "model": model, "invoked": True, "output": output.strip()}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--evidence", type=Path, default=None, help="write JSON evidence report")
@@ -251,11 +282,7 @@ def main() -> int:
             "OCR provider",
             lambda: (Evidence.require_command("tesseract"), ocr(docs / "fixture.txt")),
         )
-        evidence.check(
-            15,
-            "speech-to-text provider",
-            lambda: (Evidence.require_command("whisper"), speech_to_text(generated, timeout=60)),
-        )
+        evidence.check(15, "speech-to-text provider", lambda: _strict_speech_to_text(generated))
         evidence.check(15, "local embedding", lambda: len(local_embedding("strict e2e")) == 256)
         evidence.check(15, "vision sidecar boundary", lambda: image_vision_summary(docs / "fixture.txt"))
 
@@ -269,7 +296,7 @@ def main() -> int:
         evidence.check(17, "local AI advisory is non-authoritative", lambda: {"authoritative": local_ai_advisory("strict fixture").authoritative})
         evidence.check(17, "category analysis", lambda: category_analysis(root.iterdir()))
         evidence.check(17, "AI workflow plan is non-authoritative", lambda: ai_workflow_plan([{"id": "e2e"}]))
-        evidence.check(17, "local model provider", lambda: Evidence.require_command("ollama"))
+        evidence.check(17, "local model provider", _strict_ollama)
 
         # P18 — analytics/economics.
         evidence.check(18, "growth forecast", lambda: growth_forecast([(0, 100), (86400, 200)]))
