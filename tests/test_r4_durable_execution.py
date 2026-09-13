@@ -9,10 +9,12 @@ from teldrive_lab.safety import AuthorizationReceipt, Operation
 
 
 def _receipt(job):
+    operation = Operation.VERIFY if job.type is JobType.VERIFY else Operation.TRANSFER
+    target = job.source or job.path or job.destination or ""
     return AuthorizationReceipt.for_paths(
-        Operation.TRANSFER,
-        job.source or "",
-        job.destination or job.path or "",
+        operation,
+        target,
+        job.destination or target,
         authorization_id="r4-test",
     )
 
@@ -75,12 +77,13 @@ def test_registry_routes_transfer_through_one_worker_boundary(tmp_path: Path) ->
     assert "worker.complete" in operations
 
 
-def test_registry_exposes_only_installed_durable_adapters() -> None:
+def test_registry_exposes_all_reconciled_durable_adapters() -> None:
     registry = DurableExecutionRegistry()
-    assert JobType.UPLOAD in registry.capabilities.supported
-    assert JobType.DOWNLOAD in registry.capabilities.supported
-    assert JobType.ARCHIVE in registry.capabilities.supported
-    assert JobType.ORGANIZE in registry.capabilities.supported
-    assert JobType.BACKUP not in registry.capabilities.supported
-    with pytest.raises(ValueError, match="no durable executor registered"):
-        registry.executor_for(JobType.BACKUP)
+    required = {
+        JobType.UPLOAD, JobType.DOWNLOAD, JobType.ARCHIVE, JobType.ORGANIZE,
+        JobType.BACKUP, JobType.SNAPSHOT, JobType.CLEANUP, JobType.RESTORE, JobType.VERIFY,
+    }
+    assert required <= registry.capabilities.supported
+    assert registry.executor_for(JobType.BACKUP) is not None
+    assert registry.executor_for(JobType.CLEANUP) is not None
+    assert registry.executor_for(JobType.VERIFY) is not None
