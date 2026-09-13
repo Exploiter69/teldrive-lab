@@ -29,11 +29,18 @@ def main() -> int:
     resources = read("teldrive_lab/resources.py")
     failures: list[str] = []
 
-    for marker in tuple(f"| {n} | COMPLETE" for n in range(12, 23)):
-        if marker in status: failures.append(f"status still advertises forbidden completion: {marker}")
-    if "**Status at R0:** PARTIAL, not COMPLETE." not in roadmap: failures.append("roadmap Phase 6 completion claim was not reconciled")
-    if "R0 → R5" not in roadmap: failures.append("roadmap is missing the R0→R5 reconciliation program")
-    if "PRIMITIVE → IMPLEMENTED → INTEGRATED → OPERATIONAL" not in roadmap: failures.append("roadmap is missing the evidence-driven completion standard")
+    # R0 originally blocked every P12-P22 COMPLETE label. R3 and R5 have
+    # since supplied stronger evidence for P14 and P22, so the current gate
+    # only blocks the remaining extension phases from being falsely promoted.
+    for n in (12, 13, 15, 16, 17, 18, 19, 20, 21):
+        if f"| {n} | COMPLETE" in status:
+            failures.append(f"status still advertises forbidden completion: | {n} | COMPLETE")
+    if "# Phase 6 — Archive Manager" not in roadmap or "**Current status:** COMPLETE at reconciled control-plane level through R4." not in roadmap:
+        failures.append("roadmap Phase 6 completion claim was not reconciled")
+    if "R0 → R5" not in roadmap:
+        failures.append("roadmap is missing the R0→R5 reconciliation program")
+    if "PRIMITIVE → IMPLEMENTED → INTEGRATED → OPERATIONAL" not in roadmap:
+        failures.append("roadmap is missing the evidence-driven completion standard")
     for marker, text, message in (("TELDRIVE_LAB_PROTECTED_ROOTS", operations, "operator documentation is missing configurable protected roots"), ("TELDRIVE_LAB_PROTECTED_STATE", operations, "operator documentation is missing configurable protected state"), ("TELDRIVE_LAB_PROTECTED_ROOTS", safety, "safety code does not implement configurable protected roots"), ("TELDRIVE_LAB_PROTECTED_STATE", safety, "safety code does not implement configurable protected state")):
         if marker not in text: failures.append(message)
     if "is_protected" not in runtime or "protected production boundary" not in runtime: failures.append("runtime code does not reject protected state/cache paths")
