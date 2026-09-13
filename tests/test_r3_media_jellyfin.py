@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 import json
 import pytest
 from teldrive_lab import media_jellyfin
@@ -89,3 +88,17 @@ def test_authenticated_request_includes_jellyfin_app_header(monkeypatch):
         'Device="R3-Gate", DeviceId="teldrive-r3", Version="1.0.0"'
     )
     assert captured["payload"]["App"] == "TelDrive-Lab"
+
+def test_configure_jellyfin_authenticates_with_modern_header(monkeypatch):
+    calls = []
+    def fake_startup(base_url, path, **kwargs):
+        calls.append((path, kwargs))
+        if path == "/Users/AuthenticateByName":
+            assert kwargs["auth"] is True
+            assert kwargs["payload"]["App"] == "TelDrive-Lab"
+            return 200, {"AccessToken": "test-token"}
+        return 200, {}
+    monkeypatch.setattr(media_jellyfin, "_startup_request_with_retry", fake_startup)
+    assert media_jellyfin.configure_jellyfin("http://127.0.0.1:8096", password="test") == "test-token"
+    auth_calls = [call for call in calls if call[0] == "/Users/AuthenticateByName"]
+    assert len(auth_calls) == 1
