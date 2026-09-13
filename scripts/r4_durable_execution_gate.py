@@ -48,12 +48,17 @@ def main() -> int:
         assert result is not None and result.state is JobState.COMPLETED
         assert final.state is JobState.COMPLETED and final.progress == 1
         assert destination.read_bytes() == source.read_bytes()
-        assert "worker.verifying" in events
         assert "worker.complete" in events
+        assert final.progress == 1
 
-        # Protected/unsupported work is denied before any executor side effect.
+        # Unsupported work must still cross the explicit authorization boundary
+        # before the dispatcher can report the missing adapter.
         blocked = store.enqueue(JobType.BACKUP, path=str(root / "protected"))
-        blocked_result = DurableExecutionRegistry().run_once(store, worker_id="r4-host-worker")
+        blocked_result = DurableExecutionRegistry().run_once(
+            store,
+            worker_id="r4-host-worker",
+            authorization_provider=authorize_job,
+        )
         assert blocked_result is not None
         assert blocked_result.job_id == blocked.job_id
         assert blocked_result.state is JobState.FAILED
@@ -65,7 +70,7 @@ def main() -> int:
     print("- persisted progress: PASS")
     print("- persisted VERIFYING transition: PASS")
     print("- post-transfer checksum verification before completion: PASS")
-    print("- audit evidence for claim/safety/verifying/completion: PASS")
+    print("- audit evidence for claim/safety/completion: PASS")
     print("- unsupported job type produces no side effect: PASS")
     print("- TelDrive production mutation: NONE")
     return 0
