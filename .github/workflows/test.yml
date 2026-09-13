@@ -24,6 +24,7 @@ jobs:
       - run: PYTHONPATH="$PWD" python scripts/r1_corpus_discovery_gate.py
       - run: PYTHONPATH="$PWD" python scripts/r2_unified_search_gate.py
       - run: PYTHONPATH="$PWD" python scripts/r3_media_jellyfin_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/r4_durable_execution_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase4_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase5_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase6_host_gate.py
