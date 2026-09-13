@@ -7,6 +7,7 @@ through an injected runner.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -31,9 +32,10 @@ def main() -> int:
         audit = open_audit(root / "audit.db")
 
         def authorize_job(current):
-            operation = Operation.VERIFY if current.type is JobType.VERIFY else Operation.TRANSFER
+            if current.type is JobType.VERIFY:
+                return None  # VERIFY is deliberately read-only.
             return AuthorizationReceipt.for_paths(
-                operation,
+                Operation.TRANSFER,
                 current.source or current.path or "",
                 current.destination or current.path or current.source or "",
                 authorization_id="r4-final-host-gate",
@@ -47,22 +49,23 @@ def main() -> int:
             )
             return job, result, store.get(job.job_id)
 
-        job, result, final = run(JobType.UPLOAD, source_path=str(source), destination_path=str(destination))
-        assert result is not None and final.state is JobState.COMPLETED
+        _, _, final = run(JobType.UPLOAD, source_path=str(source), destination_path=str(destination))
+        assert final.state is JobState.COMPLETED
         assert destination.read_bytes() == source.read_bytes()
 
         backup_dir = root / "backup"
-        backup_job, _, backup_final = run(JobType.BACKUP, source_path='["%s"]' % source, destination_path=str(backup_dir))
+        _, _, backup_final = run(JobType.BACKUP, source_path='["%s"]' % source, destination_path=str(backup_dir))
         assert backup_final.state is JobState.COMPLETED
         assert (backup_dir / source.name).read_bytes() == source.read_bytes()
 
         quarantine = root / "quarantine"
-        cleanup_job, _, cleanup_final = run(JobType.CLEANUP, source_path=str(source), destination_path=str(quarantine))
+        _, _, cleanup_final = run(JobType.CLEANUP, source_path=str(source), destination_path=str(quarantine))
         assert cleanup_final.state is JobState.COMPLETED
         assert (quarantine / source.name).read_bytes() == source.read_bytes()
         assert source.is_file(), "cleanup/quarantine must not delete the source"
 
-        verify_job, _, verify_final = run(JobType.VERIFY, source_path=str(destination), checksum=__import__("hashlib").sha256(source.read_bytes()).hexdigest())
+        checksum = hashlib.sha256(source.read_bytes()).hexdigest()
+        _, _, verify_final = run(JobType.VERIFY, source_path=str(destination), checksum=checksum)
         assert verify_final.state is JobState.COMPLETED
 
         calls = []
@@ -70,7 +73,7 @@ def main() -> int:
             calls.append(list(command))
             return subprocess.CompletedProcess(command, 0, "ok", "")
         rclone_registry = DurableExecutionRegistry(rclone_adapter=RcloneAdapter(runner=fake_runner))
-        remote_job, _, remote_final = run(
+        _, _, remote_final = run(
             JobType.UPLOAD, source_path=str(source), destination_path="teldrive-lab-test:fixture.bin",
             registry=rclone_registry,
         )
