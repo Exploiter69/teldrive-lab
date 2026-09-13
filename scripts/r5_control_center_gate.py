@@ -1,7 +1,6 @@
 """R5 host gate: live control-center reads only disposable Lab state."""
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -27,6 +26,7 @@ def main() -> int:
         center = ControlCenter(root)
         center.jobs.enqueue(JobType.BACKUP, path="/fixture/video.mp4")
         payload = center.dashboard()
+        config = center.config_state()
         assert payload["schema"] == "teldrive-lab.control-center.v1"
         assert payload["authority"] == "teldrive"
         assert payload["ui_mutation_policy"] == "none"
@@ -34,7 +34,8 @@ def main() -> int:
         assert payload["jobs"]["total_known"] == 1
         assert payload["media"]["total"] == 1
         assert payload["health"]["ok"]
-        assert payload["config"]["production_mutation"] is False if "config" in payload else True
+        assert config["production_mutation"] is False
+        assert config["direct_teldrive_db_writes"] is False
         print("R5 CONTROL CENTER GATE: PASS")
         print("- live catalog state: PASS")
         print("- live durable jobs state: PASS")
