@@ -9,7 +9,7 @@ This checklist is a release-control document, not evidence that the repository i
 - [ ] **R2 — Unified TD Search:** `td search` searches the discovered corpus across applicable metadata/content layers
 - [ ] **R3 — Media / OTT:** TelDrive media discovery reaches a real media library and Jellyfin playback is verified with safe test media
 - [x] **R4 — Durable execution:** JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, Lifecycle, Verification, and Audit share one durable execution model
-- [ ] **R5 — Control Center:** dashboard consumes live control-plane state rather than placeholder/default payloads
+- [x] **R5 — Control Center:** dashboard consumes live control-plane state rather than placeholder/default payloads
 
 ## R0 evidence checklist
 

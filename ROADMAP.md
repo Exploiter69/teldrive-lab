@@ -315,7 +315,7 @@ Potential experiments include content-addressable storage, deduplication optimiz
 
 Possible surfaces include dashboard, jobs, transfers, archive plans, search, storage analytics, health, audit, and configuration visibility.
 
-**Status at R0:** INCOMPLETE. The current UI/API is primarily a shell with default/empty payloads, not a live control center. R5 owns this reconciliation.
+**Status at R5:** COMPLETE. The historical shell/default payload was reconciled into the live, loopback-only, read-only Control Center backed by Lab-owned catalog, durable jobs, media, search, health, audit, and configuration state. See `docs/R5-LIVE-CONTROL-CENTER.md`.
 
 ---
 
@@ -361,6 +361,8 @@ Unify JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, 
 
 Wire the control center to live catalog, jobs, transfers, media, search, health, and audit state only after those underlying workflows are operational.
 
+**Status:** COMPLETE. R5 is implemented, integrated into the CLI/CI, covered by unit/integration tests and a disposable host gate, and documented. The Control Center remains read-only and is not a mutation authority.
+
 ---
 
 # Global Implementation Gates
@@ -379,8 +381,6 @@ Every phase/capability must pass the applicable evidence gates:
 10. Git checkpoint
 
 No feature is complete merely because a local happy-path test passes.
-
----
 
 # Global Safety / Cost Invariants
 
