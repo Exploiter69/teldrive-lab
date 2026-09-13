@@ -75,19 +75,12 @@ def test_registry_routes_transfer_through_one_worker_boundary(tmp_path: Path) ->
     assert "worker.complete" in operations
 
 
-def test_registry_does_not_execute_unsupported_job_types(tmp_path: Path) -> None:
-    store = JobStore(tmp_path / "jobs.db")
-    job = store.enqueue(JobType.BACKUP, path=str(tmp_path / "backup"))
+def test_registry_exposes_only_installed_durable_adapters() -> None:
     registry = DurableExecutionRegistry()
-
-    result = registry.run_once(
-        store,
-        worker_id="r4-worker",
-        authorization_provider=_receipt,
-    )
-
-    assert result is not None
-    assert result.job_id == job.job_id
-    assert result.state is JobState.FAILED
-    assert result.error_code == "UNSUPPORTED_JOB_TYPE"
-    assert not (tmp_path / "backup").exists()
+    assert JobType.UPLOAD in registry.capabilities.supported
+    assert JobType.DOWNLOAD in registry.capabilities.supported
+    assert JobType.ARCHIVE in registry.capabilities.supported
+    assert JobType.ORGANIZE in registry.capabilities.supported
+    assert JobType.BACKUP not in registry.capabilities.supported
+    with pytest.raises(ValueError, match="no durable executor registered"):
+        registry.executor_for(JobType.BACKUP)
