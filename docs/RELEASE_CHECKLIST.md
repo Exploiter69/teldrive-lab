@@ -68,3 +68,5 @@ Before an RC or release tag:
 - [ ] final release/tag decision is explicitly recorded
 
 **Current interpretation:** the **core control-plane product is complete and release-hardened through R6**. The repository is not yet represented as having every optional P12–P21 capability independently E2E-verified, and an RC/tag must wait for the remaining checklist conditions rather than weakening that distinction.
+
+The repository's final release sequence is: clean the target worktree, rerun the target-host verification on the final commit, perform clean-install validation, record release notes and the final decision, and only then create the RC or release tag.
