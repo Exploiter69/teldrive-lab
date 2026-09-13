@@ -12,7 +12,43 @@ A phase or capability is not `COMPLETE` merely because code, tests, an adapter, 
 PRIMITIVE → IMPLEMENTED → INTEGRATED → OPERATIONAL → END-TO-END VERIFIED → DOCUMENTED → COMPLETE
 ```
 
-See `docs/RECONCILIATION_GATE_R0.md` for the evidence-based status and the R0→R5 reconciliation program.
+The R0 table below is a historical baseline. Current status is recorded in **Current status at R6** and in the R1–R6 reconciliation documents.
+
+---
+
+# Current status at R6
+
+R6 is the current release-hardening checkpoint. The core TelDrive Lab control plane is complete and release-hardened through R0–R6. Phases 12–21 contain implemented optional/advisory/experimental extensions; their implementation is not equivalent to universal real-world end-to-end verification. Phase 22 is a read-only live Control Center surface, with storage analytics and archive/search represented as control-plane payload/API surfaces rather than an independent destructive workflow UI.
+
+| Area | Current status | Evidence / interpretation |
+|---|---|---|
+| R0 Product Truth | COMPLETE | Repository/CI reconciliation, safety boundaries, evidence-controlled claims. |
+| R1 Corpus Discovery | COMPLETE | Bounded authoritative rclone metadata discovery, catalog ingestion, idempotence, stale-path reporting, tests and host gate. |
+| R2 Unified TD Search | COMPLETE | `td search`, FTS5, derived-index synchronization, filters, pagination and read-only contract. |
+| R3 Media / OTT | COMPLETE | Real Jellyfin 12.0 library indexing and playback with disposable Lab-owned media, read-only protection and host/CI evidence. |
+| R4 Durable Execution | COMPLETE | Durable JobStore/Worker/TransferManager execution, leases, verification state, recovery/fencing and audit evidence. |
+| R5 Live Control Center | COMPLETE | Loopback-only, GET-only Control Center backed by live catalog/jobs/transfers/media/search/health/audit/config state. |
+| R6 Release Hardening | COMPLETE | Zero-cost, least-privilege, production-boundary, unsafe-shell, CI-matrix and evidence-controlled release gates pass. Final release decision remains subject to clean working tree/release checklist conditions. |
+| Phases 0–11 | COMPLETE at reconciled control-plane level | R0–R4 reconciliation superseded the old R0-era partial labels; see individual R1–R4 evidence documents. |
+| Phase 12 | IMPLEMENTED / capability-gated | Deterministic storage/cache intelligence is implemented and tested; no automatic production eviction. Not independently E2E-proven as a universal product workflow. |
+| Phase 13 | IMPLEMENTED / read-only | JSON/IPC/metadata export-import surfaces are implemented and tested; optional interfaces remain bounded/read-only. |
+| Phase 14 | COMPLETE | Superseded by the stronger R3 operational media/Jellyfin evidence. |
+| Phase 15 | IMPLEMENTED / optional providers | OCR/PDF/STT/embedding/vision capabilities exist with optional local providers; provider availability and semantic quality are not universal E2E claims. |
+| Phase 16 | IMPLEMENTED / capability-gated | Content-aware indexing/search and semantic ranking exist; not every provider/content modality has independent real-world E2E evidence. |
+| Phase 17 | ADVISORY / implemented | Local AI assistance is advisory and policy-bounded; it is never mutation authority and is not claimed as a universally operational AI product. |
+| Phase 18 | IMPLEMENTED / advisory | Storage analytics and recommendations are deterministic/advisory; no destructive automation is implied. |
+| Phase 19 | IMPLEMENTED / high-risk workflow primitives | Snapshot, retention, verification and restore planning/dry-run are implemented; restore remains explicitly authorized and is not claimed as independently production E2E-proven. |
+| Phase 20 | CONTRACTS / implemented | Explicit cross-project contracts exist; consuming projects are not represented as independently production-integrated workflows. |
+| Phase 21 | EXPERIMENTAL / implemented | CAS, dedup planning, tiering, compression, worker and local-AI orchestration capabilities remain isolated/advisory until separately proven. |
+| Phase 22 | COMPLETE as read-only Control Center surface | Live dashboard/control-plane API is operational; storage analytics and archive/search are exposed as payload/control surfaces, not an autonomous mutation UI. |
+
+### What “complete” means here
+
+The **core product** is the reconciled control plane: safe observation, catalog discovery, search, media serving, durable execution, live control-center visibility, verification, audit, and release hardening. This core has the required integration/operational/E2E evidence through R0–R6.
+
+The Phase 12–21 extension layer is **implemented**, but optional providers, advisory features, experimental workers, and high-risk restore workflows are not promoted to universal `COMPLETE` merely because deterministic local tests exist. Their status is intentionally capability-gated and evidence-scoped.
+
+Therefore this roadmap does **not** claim that every optional P12–P21 capability has independent real-world E2E evidence. That is a deliberate accuracy boundary, not an unfinished feature phase.
 
 ---
 
@@ -25,7 +61,7 @@ See `docs/RECONCILIATION_GATE_R0.md` for the evidence-based status and the R0→
 - policy, authorization, job, transfer, catalog, verification, audit, and monitoring architecture
 - testable safety invariants
 
-**Status at R0:** COMPLETE.
+**Historical R0 status:** COMPLETE.
 
 ---
 
@@ -39,7 +75,7 @@ See `docs/RECONCILIATION_GATE_R0.md` for the evidence-based status and the R0→
 - mount/service health for TelDrive, PostgreSQL, Docker, rclone, FUSE, and storage roots
 - RAM/CPU/disk/network/process monitoring
 
-**Status at R0:** PARTIAL.
+**Current status:** COMPLETE at reconciled control-plane level; the old R0 `PARTIAL` label is historical.
 
 ---
 
@@ -54,7 +90,7 @@ See `docs/RECONCILIATION_GATE_R0.md` for the evidence-based status and the R0→
 - smart views
 - SHA-256 hash index and verification state
 
-**Status at R0:** PARTIAL. The catalog exists, but authoritative TelDrive corpus discovery/ingestion is not yet complete. This is the R1 dependency.
+**Current status:** COMPLETE at reconciled control-plane level through R1/R2. The old R0 `PARTIAL` label is historical.
 
 ---
 
@@ -75,7 +111,7 @@ QUEUED → RUNNING → VERIFYING → COMPLETED
 
 Required properties include durable timestamps/progress, leases, bounded retries, classified failures, parent/child jobs, explicit authorization, safe cancellation, and auditability.
 
-**Status at R0:** FOUNDATION COMPLETE. The JobStore/lease/retry foundation exists, but the full executor model is reconciled later in R4.
+**Current status:** COMPLETE through R4 durable-execution reconciliation. The old R0 `FOUNDATION COMPLETE` label is historical.
 
 ---
 
@@ -95,7 +131,7 @@ Required properties include explicit source/destination, dry-run, authorization,
 
 The initial rclone boundary is intentionally narrow: controlled `rclone copyto` only; no config rewriting, remounting, or service reconfiguration.
 
-**Status at R0:** PARTIAL. Local transfer and the dry-run rclone boundary are proven. A complete production rclone backend is not yet integrated.
+**Current status:** COMPLETE at reconciled control-plane level through R4. The old R0 `PARTIAL` label is historical.
 
 ---
 
@@ -119,7 +155,7 @@ audit
 
 AI is never the organization authority.
 
-**Status at R0:** PARTIAL. Deterministic planning/execution is proven in isolation; durable workflow, catalog, and audit integration remain for reconciliation.
+**Current status:** COMPLETE at reconciled control-plane level through R4. The old R0 `PARTIAL` label is historical.
 
 ---
 
@@ -136,7 +172,7 @@ DISCOVER → HASH → DUPLICATE CHECK → POLICY → DRY-RUN → AUTHORIZATION
 
 Initial archival is local → TelDrive. Local source deletion and two-way synchronization are not part of the default workflow.
 
-**Status at R0:** PARTIAL, not COMPLETE. The archive engine and durable adapter exist, but the CLI path does not yet fully connect catalog-wide duplicate detection, durable queue execution, destination indexing, and audit recording into the documented end-to-end workflow. R4 reconciles the execution path.
+**Current status:** COMPLETE at reconciled control-plane level through R4 durable execution. The old R0 `PARTIAL` label is historical.
 
 ---
 
@@ -153,7 +189,7 @@ Initial archival is local → TelDrive. Local source deletion and two-way synchr
 DUPLICATE FOUND ≠ DELETE
 ```
 
-**Status at R0:** CORE COMPLETE. The core integrity/duplicate evidence path is host-gated without production mutation.
+**Current status:** COMPLETE. Core integrity/duplicate evidence is host-gated without production mutation.
 
 ---
 
@@ -168,7 +204,7 @@ DUPLICATE FOUND ≠ DELETE
 - cleanup verification
 - lifecycle audit trail
 
-**Status at R0:** PARTIAL. Lifecycle primitives exist; complete CLI exposure and physical/logical terminal-state reconciliation remain.
+**Current status:** COMPLETE at reconciled control-plane level through R4. Any destructive production action remains authorization-gated and outside default automation.
 
 ---
 
@@ -180,7 +216,7 @@ DUPLICATE FOUND ≠ DELETE
 schedule → snapshot/backup → checksum → archive → verify → retention
 ```
 
-**Status at R0:** PARTIAL. Scheduling can create durable backup jobs, but a complete backup executor path is not yet present.
+**Current status:** COMPLETE at reconciled control-plane level through R4; scheduling and durable execution are covered by the reconciled execution model. Production mutation remains protected.
 
 ---
 
@@ -190,7 +226,7 @@ schedule → snapshot/backup → checksum → archive → verify → retention
 
 Monitor service health, job health, throughput, queue depth, failures, disk/cache use, RAM pressure, network failures, and integrity failures. Prefer local/free notifications.
 
-**Status at R0:** PARTIAL.
+**Current status:** COMPLETE at reconciled control-plane level. Health/resource visibility is also surfaced through R5. Optional notification ecosystems remain capability-gated.
 
 ---
 
@@ -200,7 +236,7 @@ Monitor service health, job health, throughput, queue depth, failures, disk/cach
 
 Current control surfaces include status, health, search, index, jobs, job control, audit, monitoring, organization, archive, verification, lifecycle, and backup scheduling. The CLI must expose plans, dry-runs, authorization boundaries, job state, verification, and audit information.
 
-**Status at R0:** PARTIAL. Documentation and implementation surfaces still require reconciliation.
+**Current status:** COMPLETE at reconciled control-plane level. The old R0 `PARTIAL` label is historical.
 
 ---
 
@@ -210,7 +246,7 @@ Current control surfaces include status, health, search, index, jobs, job contro
 
 Hot/cold classification, access frequency, cache pressure, prefetch suggestions, eviction planning, resource-aware transfers, and RAM-aware concurrency. No automatic production eviction.
 
-**Status at R0:** PRIMITIVES.
+**Current status:** IMPLEMENTED / CAPABILITY-GATED. Deterministic local implementation and tests exist; universal real-world E2E is intentionally not claimed.
 
 ---
 
@@ -220,7 +256,7 @@ Hot/cold classification, access frequency, cache pressure, prefetch suggestions,
 
 Read-only JSON/IPC metadata surfaces and catalog export/import are optional interfaces. No TelDrive database write access.
 
-**Status at R0:** PRIMITIVES.
+**Current status:** IMPLEMENTED / READ-ONLY. Local tests and safety boundaries exist; external interoperability remains capability-gated.
 
 ---
 
@@ -235,7 +271,7 @@ TelDrive corpus → automatic media discovery → media catalog
 → Jellyfin library exposure → Jellyfin → actual playback
 ```
 
-**Status at R3:** COMPLETE. The isolated R3 reconciliation gate now verifies bounded discovery/classification, controlled read-only exposure, real Jellyfin 12.0 startup/authentication, real library indexing, real stream playback, read-only container protection, and absence of TelDrive production mutation. See `docs/R3-MEDIA-JELLYFIN.md`.
+**Current status:** COMPLETE through R3. Real Jellyfin library indexing/playback and read-only protection were verified with disposable Lab-owned media.
 
 ---
 
@@ -245,7 +281,7 @@ TelDrive corpus → automatic media discovery → media catalog
 
 Possible tools include OCR, PDF metadata, document classification, local speech-to-text, local embeddings, and local vision. AI remains advisory.
 
-**Status at R0:** PROVIDER PRIMITIVES. Provider availability and integrated indexing quality must be proven before claiming product completion.
+**Current status:** IMPLEMENTED / OPTIONAL PROVIDERS. Deterministic/local adapters exist, but provider availability, model quality, and complete provider-specific pipelines are not universal E2E claims.
 
 ---
 
@@ -257,7 +293,7 @@ Possible tools include OCR, PDF metadata, document classification, local speech-
 filename/path → metadata → full text → OCR/transcript → embeddings → semantic search
 ```
 
-**Status at R0:** INCOMPLETE. Advanced content search is separate from `td search`; R2 unifies the product surface.
+**Current status:** IMPLEMENTED / CAPABILITY-GATED. Content indexing and semantic ranking exist; not every optional content provider/modality has independent real-world E2E evidence.
 
 ---
 
@@ -267,7 +303,7 @@ filename/path → metadata → full text → OCR/transcript → embeddings → s
 
 Natural-language search, archive/organization suggestions, duplicate/anomaly explanation, media classification, and metadata enrichment are advisory only.
 
-**Status at R0:** ADVISORY PRIMITIVES.
+**Current status:** ADVISORY / IMPLEMENTED. Local model capability detection and advisory wrappers exist. AI is never mutation authority and universal AI-provider E2E is not claimed.
 
 ---
 
@@ -277,7 +313,7 @@ Natural-language search, archive/organization suggestions, duplicate/anomaly exp
 
 Growth forecasting, heatmaps, category analysis, reclaim estimates, archive recommendations, and transfer-cost estimation remain advisory.
 
-**Status at R0:** ADVISORY.
+**Current status:** IMPLEMENTED / ADVISORY. Deterministic analytics and recommendation primitives are covered by local tests; destructive reclaim is not automatic.
 
 ---
 
@@ -287,7 +323,7 @@ Growth forecasting, heatmaps, category analysis, reclaim estimates, archive reco
 
 Snapshot manifests, incremental snapshots, retention, verification, restore planning/dry-runs, and explicit restore authorization. Restore is high-risk.
 
-**Status at R0:** SNAPSHOT PRIMITIVES.
+**Current status:** IMPLEMENTED / HIGH-RISK, CAPABILITY-GATED. Snapshot and restore-planning primitives are tested; production restore is never implied by a dry-run or adapter.
 
 ---
 
@@ -297,7 +333,7 @@ Snapshot manifests, incremental snapshots, retention, verification, restore plan
 
 Potential consumers include VAJRA, Alok Engineering Lab, local development environments, datasets, and experiment archives.
 
-**Status at R0:** CONTRACTS.
+**Current status:** CONTRACTS / IMPLEMENTED. Explicit versioned contracts exist; independent production integrations are not claimed.
 
 ---
 
@@ -305,7 +341,7 @@ Potential consumers include VAJRA, Alok Engineering Lab, local development envir
 
 Potential experiments include content-addressable storage, deduplication optimization, intelligent tiering, snapshot compression, distributed workers, remote workers, and advanced local AI orchestration.
 
-**Status at R0:** EXPERIMENTAL. Experimental features remain isolated until proven.
+**Current status:** EXPERIMENTAL / IMPLEMENTED. Capabilities exist behind Lab-owned boundaries and remain isolated/advisory until separately proven for a concrete workflow.
 
 ---
 
@@ -313,15 +349,15 @@ Potential experiments include content-addressable storage, deduplication optimiz
 
 **Goal:** provide a local UI over an already-proven control plane.
 
-Possible surfaces include dashboard, jobs, transfers, archive plans, search, storage analytics, health, audit, and configuration visibility.
+Surfaces include dashboard, jobs, transfers, archive/search payloads, storage analytics, health, audit, and configuration visibility.
 
-**Status at R5:** COMPLETE. The historical shell/default payload was reconciled into the live, loopback-only, read-only Control Center backed by Lab-owned catalog, durable jobs, media, search, health, audit, and configuration state. See `docs/R5-LIVE-CONTROL-CENTER.md`.
+**Current status:** COMPLETE as a read-only live Control Center through R5. It is loopback-only and GET-only, backed by live Lab state. Storage analytics and archive/search are documented as control-plane payload/API surfaces; the Control Center is not a mutation authority.
 
 ---
 
-# Reconciliation Program — R0 → R5
+# Reconciliation Program — R0 → R6
 
-The numbered implementation phases above describe capability history and intended dependencies. The following gates reconcile the product before new feature expansion.
+The numbered implementation phases above describe capability history and intended dependencies. The following gates reconciled the core product before release hardening.
 
 ```text
 R0 Product Truth
@@ -335,35 +371,49 @@ R3 Operational Media / OTT
 R4 Durable Execution Reconciliation
       ↓
 R5 Live Control Center
+      ↓
+R6 Production Hardening / Release
 ```
 
 ### R0 — Product Truth
 
-Make roadmap, documentation, code, tests, host gates, CI, and release claims agree with actual evidence. Remove false completion claims, resolve safety/documentation contradictions, consolidate duplicate implementation concepts, and establish evidence-driven CI.
+Reconcile roadmap, documentation, code, tests, host gates, CI, and release claims with actual evidence.
 
 ### R1 — Corpus Discovery
 
-Build authoritative, bounded, incremental TelDrive metadata discovery/ingestion into the derived catalog. Preserve provenance and idempotence. Existing TelDrive files must not require manual registration.
+Build authoritative, bounded, incremental TelDrive metadata discovery/ingestion into the derived catalog. Preserve provenance and idempotence.
+
+**Status:** COMPLETE.
 
 ### R2 — Unified TD Search
 
-Make `td search` operate over the discovered corpus and unify filename/path, metadata, media metadata, full text, OCR/transcripts, and optional semantic indexes.
+Make `td search` operate over the discovered corpus and unify applicable filename/path, metadata, media metadata, full text, OCR/transcripts, and optional semantic indexes.
+
+**Status:** COMPLETE for the supported deterministic search stack. Optional providers remain capability-gated.
 
 ### R3 — Operational Media / OTT
 
 Build and verify TelDrive corpus → media discovery → media catalog → Jellyfin library exposure → actual playback using safe Lab-owned/test media.
 
-**Status:** COMPLETE. The R3 CI gate verifies DISCOVER → CLASSIFY → EXPOSE → SERVE → INDEX → PLAY → PROTECT → VERIFY, and the workflow is documented. The automated path uses only disposable Lab-owned media and never mutates production TelDrive/rclone state.
+**Status:** COMPLETE. The R3 CI/host evidence verifies DISCOVER → CLASSIFY → EXPOSE → SERVE → INDEX → PLAY → PROTECT → VERIFY.
 
 ### R4 — Durable Execution Reconciliation
 
-Unify JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, Lifecycle, Verification, and Audit. Progress and `VERIFYING` must be real persisted execution states, not merely modeled fields.
+Unify JobStore, Worker, TransferManager, rclone, Archive, Organization, Backup, Lifecycle, Verification, and Audit behind the durable execution boundary.
+
+**Status:** COMPLETE.
 
 ### R5 — Live Control Center
 
-Wire the control center to live catalog, jobs, transfers, media, search, health, and audit state only after those underlying workflows are operational.
+Wire the Control Center to live catalog, jobs, transfers, media, search, health, and audit state only after those underlying workflows are operational.
 
-**Status:** COMPLETE. R5 is implemented, integrated into the CLI/CI, covered by unit/integration tests and a disposable host gate, and documented. The Control Center remains read-only and is not a mutation authority.
+**Status:** COMPLETE. The Control Center is read-only and is not a mutation authority.
+
+### R6 — Production Hardening / Release
+
+Run the final safety, CI, dependency, boundary, documentation, and target-host checks and make an evidence-controlled release decision.
+
+**Status:** COMPLETE as a hardening gate. A release tag remains subject to the release checklist's final clean-worktree and release-note conditions.
 
 ---
 
