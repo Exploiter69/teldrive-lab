@@ -37,6 +37,9 @@ class RcloneAdapter:
             command.append("--dry-run")
         return command
 
+    def build_check_command(self, source: str, destination: str) -> list[str]:
+        return [self.executable, "check", source, destination, "--one-way", "--retries", "1", "--low-level-retries", "1"]
+
     def copy(self, source: str, destination: str, *, authorization: AuthorizationReceipt | None = None,
              dry_run: bool = False) -> RcloneResult:
         if not dry_run:
@@ -54,6 +57,24 @@ class RcloneAdapter:
             completed.stdout,
             completed.stderr,
             None if completed.returncode == 0 else "rclone command failed",
+        )
+
+    def check(self, source: str, destination: str, *, authorization: AuthorizationReceipt | None = None,
+              dry_run: bool = False) -> RcloneResult:
+        if not dry_run:
+            decision = authorize(Operation.VERIFY, source, destination, receipt=authorization)
+            if not decision.allowed:
+                return RcloneResult(False, 0, error=decision.reason)
+        try:
+            completed = self.runner(self.build_check_command(source, destination))
+        except OSError as exc:
+            return RcloneResult(False, -1, error=str(exc))
+        return RcloneResult(
+            completed.returncode == 0,
+            completed.returncode,
+            completed.stdout,
+            completed.stderr,
+            None if completed.returncode == 0 else "rclone verification failed",
         )
 
     @staticmethod

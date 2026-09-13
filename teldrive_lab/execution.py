@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from .archive import ArchiveJobExecutor
 from .jobs import Job, JobType, JobStore
 from .organization import OrganizationJobExecutor
+from .r4_adapters import BackupJobExecutor, LifecycleJobExecutor, RcloneTransferBackend, VerificationJobExecutor
+from .rclone import RcloneAdapter
 from .transfer import TransferManager
 from .transfer_executor import TransferJobExecutor
 from .worker import ExecutionResult, JobExecutor, Worker
@@ -44,15 +46,25 @@ class DispatchingExecutor:
 
 
 class DurableExecutionRegistry:
-    """Central executor registry for all durable execution entry points."""
+    """Central executor registry for every supported durable job type."""
 
-    def __init__(self, *, transfer_manager: TransferManager | None = None) -> None:
-        manager = transfer_manager or TransferManager()
+    def __init__(self, *, transfer_manager: TransferManager | None = None,
+                 rclone_adapter: RcloneAdapter | None = None) -> None:
+        if transfer_manager is not None and rclone_adapter is not None:
+            raise ValueError("provide transfer_manager or rclone_adapter, not both")
+        manager = transfer_manager or TransferManager(
+            backend=RcloneTransferBackend(rclone_adapter) if rclone_adapter is not None else None
+        )
         self._executors: dict[JobType, JobExecutor] = {
             JobType.UPLOAD: TransferJobExecutor(manager),
             JobType.DOWNLOAD: TransferJobExecutor(manager),
             JobType.ARCHIVE: ArchiveJobExecutor(manager),
             JobType.ORGANIZE: OrganizationJobExecutor(manager),
+            JobType.BACKUP: BackupJobExecutor(transfer=manager),
+            JobType.SNAPSHOT: BackupJobExecutor(transfer=manager),
+            JobType.CLEANUP: LifecycleJobExecutor(transfer=manager),
+            JobType.RESTORE: LifecycleJobExecutor(transfer=manager),
+            JobType.VERIFY: VerificationJobExecutor(),
         }
         self.dispatcher = DispatchingExecutor(self._executors)
 
