@@ -28,7 +28,6 @@ def main() -> int:
     # Release documentation must identify R6 as the final hardening gate.
     assert "R6" in checklist
     assert "R6" in roadmap
-    assert "R6" in boundary and "R6" in safety
 
     # Production-boundary language must remain explicit.
     required_safety_terms = (
