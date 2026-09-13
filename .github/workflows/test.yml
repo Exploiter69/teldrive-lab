@@ -35,3 +35,4 @@ jobs:
       - run: PYTHONPATH="$PWD" python scripts/phase10_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phase11_host_gate.py
       - run: PYTHONPATH="$PWD" python scripts/phases12_22_host_gate.py
+      - run: PYTHONPATH="$PWD" python scripts/r6_release_hardening_gate.py
