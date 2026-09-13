@@ -14,7 +14,8 @@ from .jobs import Job, JobType, JobStore
 from .organization import OrganizationJobExecutor
 from .transfer import TransferManager
 from .transfer_executor import TransferJobExecutor
-from .worker import JobExecutor, Worker
+from .worker import ExecutionResult, JobExecutor, Worker
+from .safety import AuthorizationReceipt
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,24 @@ class ExecutionCapabilities:
     """Deterministic view of which job types have an installed executor."""
 
     supported: frozenset[JobType]
+
+
+class DispatchingExecutor:
+    """One Worker-facing executor that routes by the durable job type."""
+
+    def __init__(self, executors: dict[JobType, JobExecutor]) -> None:
+        self._executors = dict(executors)
+
+    def execute(self, job: Job, authorization: AuthorizationReceipt | None = None) -> ExecutionResult:
+        executor = self._executors.get(job.type)
+        if executor is None:
+            from .worker import ExecutionStatus
+            return ExecutionResult(
+                ExecutionStatus.PERMANENT,
+                "UNSUPPORTED_JOB_TYPE",
+                f"no durable executor registered for {job.type.value}",
+            )
+        return executor.execute(job, authorization)
 
 
 class DurableExecutionRegistry:
@@ -35,6 +54,7 @@ class DurableExecutionRegistry:
             JobType.ARCHIVE: ArchiveJobExecutor(manager),
             JobType.ORGANIZE: OrganizationJobExecutor(manager),
         }
+        self.dispatcher = DispatchingExecutor(self._executors)
 
     @property
     def capabilities(self) -> ExecutionCapabilities:
@@ -49,19 +69,16 @@ class DurableExecutionRegistry:
     def worker(
         self,
         store: JobStore,
-        job: Job | None = None,
         *,
         worker_id: str | None = None,
         audit_conn=None,
         lease_seconds: float = 300,
         authorization_provider=None,
     ) -> Worker:
-        """Build the Worker for a claimed job type without moving authority."""
-        if job is None:
-            raise ValueError("job is required to select a durable executor")
+        """Build the single Worker boundary for every registered job type."""
         return Worker(
             store,
-            self.executor_for(job.type),
+            self.dispatcher,
             worker_id=worker_id,
             audit_conn=audit_conn,
             lease_seconds=lease_seconds,
@@ -77,30 +94,9 @@ class DurableExecutionRegistry:
         lease_seconds: float = 300,
         authorization_provider=None,
     ) -> Job | None:
-        """Claim exactly one job and route it through the registered executor.
-
-        The first queued job determines the executor. The job remains leased by
-        Worker and is still subject to the central safety decision before any
-        executor is invoked.
-        """
-        candidate = store.list_jobs(state=None, limit=1000)
-        queued = [job for job in candidate if job.state.value == "QUEUED"]
-        if not queued:
-            return None
-        # Do not claim here: Worker.claim owns the authoritative priority/order.
-        # Select only after peeking at the same queue through a deterministic
-        # read; if another worker races, retry by returning None to the caller.
-        selected = min(
-            queued,
-            key=lambda job: (
-                0 if job.priority == "CRITICAL" else 1 if job.priority == "HIGH" else 2 if job.priority == "NORMAL" else 3,
-                job.retry_at if job.retry_at is not None else 0,
-                job.job_id,
-            ),
-        )
+        """Claim and execute exactly one queued job through the central boundary."""
         return self.worker(
             store,
-            selected,
             worker_id=worker_id,
             audit_conn=audit_conn,
             lease_seconds=lease_seconds,
