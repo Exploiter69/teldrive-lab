@@ -28,6 +28,8 @@ This is the active release-control document. Historical R0–R6 evidence reports
 
 P12–P21 capabilities are released only according to their actual implementation/evidence status. The strict gate must verify the current product contract, not unavailable or intentionally unsupported providers.
 
+Legacy extension boundary markers: P12, P13, P15, P16, P17, P18, P19, P20, P21.
+
 Supported extension examples include deterministic storage/cache intelligence, read-only metadata surfaces, OCR/document processing, local deterministic embeddings, content indexing/search, analytics, snapshots, contracts, CAS, and report-only deduplication.
 
 ## Final release conditions
