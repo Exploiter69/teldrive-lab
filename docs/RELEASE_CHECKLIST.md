@@ -42,6 +42,14 @@ Supported extension examples include deterministic storage/cache intelligence, r
 - [ ] release notes describe only verified capabilities
 - [ ] final release/tag decision is recorded
 
+## Release-candidate evidence
+
+The intended release candidate is **v1.0.0-rc2**. The release notes are recorded in `docs/RELEASE-NOTES-v1.0.0-rc2.md`.
+
+Before tagging, the exact final documentation commit must be identified and independently validated. The final local worktree must be clean apart from explicitly preserved local-only state, and the complete CI gate matrix plus clean-install and production-boundary validation must pass on that exact commit. The preserved local stash `local-r0-gate-work-before-r3-sync` is intentionally unrelated to the release candidate and must not be popped, dropped, or committed.
+
+Previously established evidence includes a clean-install import and full pytest pass on the R6-hardened code, R0–R6 and Phase 4–11 plus Phase 12–22 host gates passing, and real Jellyfin host verification with no production TelDrive/Telegram mutation. GitHub Actions was green on the pre-release-documentation commit `20b11c1bebb4ab6f6a7b36b03507384acfdfd18b`.
+
 ## Final release sequence
 
 The repository's final release sequence is:
