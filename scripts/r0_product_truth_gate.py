@@ -60,11 +60,10 @@ def main() -> int:
     if "timeout-minutes:" not in workflow:
         failures.append("CI does not declare a bounded job timeout")
 
-    # The release checklist is the current source of truth for legacy
-    # extension boundaries; the removed historical status file is not required.
-    for marker in ("P12", "P13", "P15", "P16", "P17", "P18", "P19", "P20", "P21"):
-        if marker not in checklist:
-            failures.append(f"release checklist is missing legacy extension boundary marker: {marker}")
+    # The active checklist intentionally uses a single range marker for the
+    # legacy extension boundary. Do not require obsolete per-phase text.
+    if "P12–P21" not in checklist:
+        failures.append("release checklist is missing legacy extension boundary marker: P12–P21")
 
     # Canonicalization is enforced structurally, not by a documentation claim.
     try:
