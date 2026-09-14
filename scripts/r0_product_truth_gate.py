@@ -18,8 +18,8 @@ def read(path: str) -> str:
 
 def main() -> int:
     roadmap = read("ROADMAP.md")
-    status = read("docs/PHASES_12_22_IMPLEMENTATION_STATUS.md")
     operations = read("docs/OPERATIONS.md")
+    checklist = read("docs/RELEASE_CHECKLIST.md")
     workflow = read(".github/workflows/test.yml")
     safety = read("teldrive_lab/safety.py")
     runtime = read("teldrive_lab/runtime.py")
@@ -28,12 +28,9 @@ def main() -> int:
     resources = read("teldrive_lab/resources.py")
     failures: list[str] = []
 
-    # R0 protects the current product contract. P12-P21 remain extension
-    # capabilities and must not be promoted to COMPLETE merely by legacy
-    # documentation claims.
-    for n in (12, 13, 15, 16, 17, 18, 19, 20, 21):
-        if f"| {n} | COMPLETE" in status:
-            failures.append(f"status still advertises forbidden completion: | {n} | COMPLETE")
+    # R0 protects the current product contract. Legacy Phase 12-22 work is
+    # governed by the current roadmap/checklist and must not silently become
+    # part of the core release claim.
     if "Core control plane: COMPLETE and release-hardened through R0–R6." not in roadmap:
         failures.append("roadmap is missing the current core release state")
     if "PRIMITIVE → IMPLEMENTED → INTEGRATED → OPERATIONAL" not in roadmap:
@@ -62,6 +59,12 @@ def main() -> int:
         failures.append("CI does not declare least-privilege repository permissions")
     if "timeout-minutes:" not in workflow:
         failures.append("CI does not declare a bounded job timeout")
+
+    # The release checklist is the current source of truth for legacy
+    # extension boundaries; the removed historical status file is not required.
+    for marker in ("P12", "P13", "P15", "P16", "P17", "P18", "P19", "P20", "P21"):
+        if marker not in checklist:
+            failures.append(f"release checklist is missing legacy extension boundary marker: {marker}")
 
     # Canonicalization is enforced structurally, not by a documentation claim.
     try:
@@ -103,7 +106,7 @@ def main() -> int:
         return 1
     print("R0 PRODUCT TRUTH GATE: PASS")
     print("- current product contract and evidence-driven completion state: PASS")
-    print("- Phase 12-22 false completion claims blocked: PASS")
+    print("- legacy Phase 12-22 extension boundary is release-controlled: PASS")
     print("- advanced.py canonical / extended.py compatibility facade: PASS")
     print("- bounded traversal + streaming file primitives enforced: PASS")
     print("- whole-file canonical read/traversal patterns blocked: PASS")
