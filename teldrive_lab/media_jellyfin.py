@@ -80,12 +80,14 @@ def wait_for_jellyfin(base_url,timeout=90):
   time.sleep(1)
  raise R3Error("Jellyfin did not become ready")
 def _startup_request_with_retry(base_url,path,*,method="GET",payload=None,timeout=10,retry_timeout=90,auth=False):
- """Retry only transient 503 responses while Jellyfin finishes internal startup."""
+ """Retry transient startup failures while Jellyfin finishes internal initialization."""
  deadline=time.monotonic()+retry_timeout
  while True:
   try:return _request(base_url,path,method=method,payload=payload,timeout=timeout,auth=auth)
   except R3Error as exc:
-   if "HTTP 503" not in str(exc) or time.monotonic()>=deadline:raise
+   message=str(exc)
+   transient=("HTTP 503" in message or "Jellyfin unreachable:" in message)
+   if not transient or time.monotonic()>=deadline:raise
    time.sleep(min(1.0,max(0.0,deadline-time.monotonic())))
 def configure_jellyfin(base_url,username="r3-admin",password=None):
  password=password or secrets.token_urlsafe(32)
