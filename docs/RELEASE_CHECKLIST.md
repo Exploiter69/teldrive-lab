@@ -40,6 +40,20 @@ Supported extension examples include deterministic storage/cache intelligence, r
 - [ ] release notes describe only verified capabilities
 - [ ] final release/tag decision is recorded
 
+## Final release sequence
+
+The repository's final release sequence is:
+
+1. finish all code/documentation changes for the release candidate;
+2. verify the target local worktree is clean, except for explicitly preserved local-only state such as a documented stash;
+3. identify the exact release candidate commit;
+4. run CI and require the full gate matrix to pass on that commit;
+5. run clean-install and production-boundary validation without mutating production data;
+6. record release notes containing only verified capabilities;
+7. only then create the RC or release tag.
+
+R6 hardening is a prerequisite for the release sequence, not permission for autonomous production mutation.
+
 A release must never introduce:
 
 - direct TelDrive PostgreSQL writes
