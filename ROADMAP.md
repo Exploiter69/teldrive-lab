@@ -14,6 +14,8 @@ PRIMITIVE → IMPLEMENTED → INTEGRATED → OPERATIONAL → END-TO-END VERIFIED
 
 **v1.0.0: COMPLETE and release-hardened through R0–R6.**
 
+**Core control plane: COMPLETE and release-hardened through R0–R6.**
+
 The v1.0.0 release tag points to the validated RC2 commit. Post-RC evidence is recorded separately on `main`; it does not mutate the release tag.
 
 The core includes authoritative discovery/catalog, search, media/Jellyfin serving, durable execution, verification, audit, monitoring, and the read-only Control Center.
