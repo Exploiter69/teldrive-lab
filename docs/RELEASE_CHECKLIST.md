@@ -1,75 +1,93 @@
-# Release checklist
+# Release Checklist
 
-This is the active release-control document. Historical R0–R6 evidence reports are intentionally not maintained as separate active documents.
+This document is the historical release-control record for **v1.0.0**. It is intentionally closed; future work belongs in the v1.1 roadmap and its own gates.
+
+## v1.0.0 release identity
+
+- **Release:** `v1.0.0`
+- **Release candidate:** `v1.0.0-rc2`
+- **Validated release commit:** `b3f879b5193bc4e2e8c091e87be49a3be1f5cc84`
+- **Final tag:** `v1.0.0`
+- **RC2 tag:** `v1.0.0-rc2`
+- **Post-RC evidence commit:** `61d94f12e0b96fc86a85f21f148c331c6742dd91`
+- **Post-RC audit:** `docs/POST-RC-VALIDATION.md`
+
+The final `v1.0.0` tag intentionally points to the already validated RC2 commit. The post-RC documentation commit is on `main` and does not replace or mutate the release tag.
 
 ## Product scope
 
-- [x] Core control plane is release-hardened through R0–R6
+- [x] Core control plane release-hardened through R0–R6
 - [x] TelDrive remains the production storage authority
 - [x] Production mutation remains policy/authorization/executor/verification/audit controlled
-- [x] Zero-cost runtime remains the product constraint
-- [x] No paid API or cloud AI dependency is required
-- [x] Whisper / speech-to-text is out of scope
-- [x] Ollama / local LLM runtime is out of scope
-- [x] Autonomous AI mutation is out of scope
+- [x] Zero-cost runtime constraint preserved
+- [x] No paid API or cloud AI dependency required
+- [x] Whisper / speech-to-text excluded
+- [x] Ollama / local LLM runtime excluded
+- [x] Autonomous AI mutation excluded
 
 ## Core release gates
 
-- [x] authoritative corpus discovery
-- [x] unified search
-- [x] media/Jellyfin workflow
-- [x] durable execution and recovery
-- [x] verification and audit
-- [x] read-only Control Center
-- [x] production-boundary hardening
+- [x] Authoritative bounded corpus discovery
+- [x] Unified FTS5 search
+- [x] Media/Jellyfin workflow
+- [x] Durable execution and recovery
+- [x] Verification and audit evidence
+- [x] Read-only loopback Control Center
+- [x] Production-boundary hardening
 - [x] CI safety and least-privilege checks
 
 ## Extension boundary
 
-P12–P21 capabilities are released only according to their actual implementation/evidence status. The strict gate must verify the current product contract, not unavailable or intentionally unsupported providers.
+P12–P21 capabilities are represented only according to their actual implementation/evidence status. They are not release blockers merely because optional or experimental capabilities are not production integrations.
 
-Legacy extension boundary markers: P12, P13, P15, P16, P17, P18, P19, P20, P21.
+Supported extension examples include deterministic storage/cache intelligence, read-only metadata surfaces, OCR/document processing where locally available, deterministic local feature-hash embeddings, content indexing/search, analytics, snapshots/recovery planning, explicit contracts, CAS, and report-only deduplication planning.
 
-Supported extension examples include deterministic storage/cache intelligence, read-only metadata surfaces, OCR/document processing, local deterministic embeddings, content indexing/search, analytics, snapshots, contracts, CAS, and report-only deduplication.
+## Final release conditions — CLOSED
 
-## Final release conditions
+- [x] Target release worktree was clean apart from explicitly preserved local-only state
+- [x] Exact release commit identified
+- [x] CI green on the exact RC2 candidate (`34873474878`)
+- [x] Clean-install import passed on the exact candidate
+- [x] Full pytest passed on the exact candidate
+- [x] R0–R6 and Phase 4–11 plus Phase 12–22 host gates passed
+- [x] Final production-boundary validation passed without production mutation
+- [x] Release notes contain only verified capabilities
+- [x] Post-RC validation found no release blockers
+- [x] `v1.0.0-rc2` tagged at the validated commit
+- [x] `v1.0.0` promoted to the same validated commit
 
-- [ ] target worktree is clean
-- [ ] final commit is identified
-- [ ] CI is green on the final commit
-- [ ] clean-install validation passes
-- [ ] final production-boundary validation is green
-- [ ] release notes describe only verified capabilities
-- [ ] final release/tag decision is recorded
+## Operational post-release evidence
 
-## Release-candidate evidence
+The post-RC review recorded PASS for:
 
-The intended release candidate is **v1.0.0-rc2**. The release notes are recorded in `docs/RELEASE-NOTES-v1.0.0-rc2.md`.
+- discovery → catalog → search
+- media discovery → safe exposure → Jellyfin → playback
+- durable execution → VERIFYING → COMPLETED
+- lease loss/recovery/stale-worker fencing
+- verification and audit
+- Control Center read-only behavior
+- protected production-boundary behavior
+- failure/recovery review
 
-Before tagging, the exact final documentation commit must be identified and independently validated. The final local worktree must be clean apart from explicitly preserved local-only state, and the complete CI gate matrix plus clean-install and production-boundary validation must pass on that exact commit. The preserved local stash `local-r0-gate-work-before-r3-sync` is intentionally unrelated to the release candidate and must not be popped, dropped, or committed.
+Local operational follow-up also verified persistent Jellyfin configuration with `restart=unless-stopped`, `init=true`, persistent `/config` and `/cache`, and a read-only `/media` mount. This is local operational evidence, not a change to the v1.0 release contract.
 
-Previously established evidence includes a clean-install import and full pytest pass on the R6-hardened code, R0–R6 and Phase 4–11 plus Phase 12–22 host gates passing, and real Jellyfin host verification with no production TelDrive/Telegram mutation. GitHub Actions was green on the pre-release-documentation commit `20b11c1bebb4ab6f6a7b36b03507384acfdfd18b`.
+## Explicit non-goals
 
-## Final release sequence
-
-The repository's final release sequence is:
-
-1. finish all code/documentation changes for the release candidate;
-2. verify the target local worktree is clean, except for explicitly preserved local-only state such as a documented stash;
-3. identify the exact release candidate commit;
-4. run CI and require the full gate matrix to pass on that commit;
-5. run clean-install and production-boundary validation without mutating production data;
-6. record release notes containing only verified capabilities;
-7. only then create the RC or release tag.
-
-R6 hardening is a prerequisite for the release sequence, not permission for autonomous production mutation.
-
-A release must never introduce:
+A v1.0 release must never imply or introduce:
 
 - direct TelDrive PostgreSQL writes
 - silent production mutation
 - autonomous destructive storage administration
-- authorization minted by a worker/planner/UI
+- authorization minted by a worker, planner, UI, or AI
 - paid runtime dependencies
 - mandatory remote AI
-- claims of unlimited or permanent Telegram storage
+- unlimited or permanent Telegram storage
+- automatic production eviction
+- automatic production deduplication
+- unbounded remote workers
+
+## Release closure
+
+**Status: COMPLETE.**
+
+The v1.0 release-control record is closed. Do not reopen it for ordinary v1.1 development. Any new capability, gate, or behavioral change must be tracked under the v1.1 roadmap and must not move the `v1.0.0` tag.
